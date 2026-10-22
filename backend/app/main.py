@@ -18,6 +18,7 @@ from app.api.routes import (
     catalog,
     chat,
     correlation,
+    dependencies,
     health,
     search,
     vulnerabilities,
@@ -77,6 +78,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.rate_limiter = RateLimiter()
     app.state.embedder = build_embedder(settings)
     app.state.llm = build_llm(settings)
+    app.state.osv_client_factory = lambda: dependencies.default_osv_client_factory(
+        settings.osv_api_url, settings.ingestion_http_timeout_seconds
+    )
     app.state.readiness_probes = {
         "embeddings": lambda: embedding_probe(app),
         "llm": lambda: llm_probe(app),
@@ -106,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_v1.include_router(catalog.router)
     api_v1.include_router(search.router)
     api_v1.include_router(chat.router)
+    api_v1.include_router(dependencies.router)
     api_v1.include_router(admin.router)
     app.include_router(api_v1)
 

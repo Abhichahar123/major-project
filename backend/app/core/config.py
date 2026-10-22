@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     rag_max_context_chars: int = Field(default=12_000, ge=1000, le=100_000)
     rag_max_answer_chars: int = Field(default=6000, ge=500, le=50_000)
 
+    # Dependency analysis: also query api.osv.dev for advisories missing from the local
+    # export. Off by default: it sends package names and versions to a third party.
+    osv_online_lookup: bool = False
+
     # --- Rate limits (requests per minute per client; 0 disables) ----------------------
     rate_limit_search_per_minute: int = Field(default=120, ge=0, le=10_000)
     rate_limit_chat_per_minute: int = Field(default=10, ge=0, le=1000)

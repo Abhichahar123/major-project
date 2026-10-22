@@ -14,7 +14,7 @@ Branch: `feat/full-platform` (from `main` at `8a27316`). Updated at every milest
 | 6. Embeddings and semantic retrieval | complete | chunking, hashing (lexical) + Ollama (semantic, mocked only in sandbox) embedders, IDF keyword ranking, exact/HNSW vector search, weighted RRF, `/api/v1/search` |
 | 7. LLM and RAG | complete | Ollama / OpenAI-compatible / mock / none providers, guarded prompt, citation + CVE-ID validation, DB facts, evidence-only fallback, refusal of offensive requests, `/api/v1/chat`. No real LLM run in sandbox |
 | 8. Threat-intelligence correlation | complete | 8 documented rules (authoritative vs inferred), CVE→CWE→CAPEC→ATT&CK chain with paths and confidence, shared product/weakness, OSV aliases, technique→CVEs, CWE overview |
-| 9. Dependency analysis | pending | |
+| 9. Dependency analysis | complete | requirements.txt, package-lock.json (v1–v3), package.json; OSV range evaluation (PEP 440 / SemVer), confirmed vs uncertain, alias merging, CVE-record fallback, optional OSV.dev API (off by default), `/api/v1/dependencies/analyze` |
 | 10. Flutter frontend | pending | |
 | 11. Security, testing, evaluation | pending | |
 | 12. Deployment and documentation | pending | |
@@ -42,4 +42,5 @@ These were checked in the sandbox used to build the project, not assumed.
 | Phase 5 APIs | `49e6f19` | yes | 144 passed (unit + integration); manual run against the real seeded database |
 | Phase 6 retrieval | `ff9aac0` | yes | 164 passed; real index: 2,481 documents and 3,311 chunks embedded with hashing-v2 in about 16 s, rerun 100% unchanged. Ollama embeddings not run (no model in sandbox) |
 | Phase 7 RAG | `0029c17` | yes | 197 passed; manual API run with the mock LLM on real data (8 questions incl. off-topic and unknown CVE) and with Ollama unreachable (evidence-only fallback) |
-| Phase 8 correlation | see git log | yes | 211 passed; manual run on real data (flask CWE-539 → CAPEC-21 → T1539; Log4Shell broad-CWE paths labelled low confidence) |
+| Phase 8 correlation | `47caf42` | yes | 211 passed; manual run on real data (flask CWE-539 → CAPEC-21 → T1539; Log4Shell broad-CWE paths labelled low confidence) |
+| Phase 9 dependency analysis | see git log | yes | 267 passed; real run on samples/: requirements demo 7 vulnerable packages (33 confirmed, 18 uncertain), package-lock demo 7 packages (46 confirmed); 413/415/422 checks |
