@@ -27,14 +27,14 @@ milestone. Every item marked complete was verified as described in the log below
 |---|---|
 | Backend: `ruff check`, `ruff format --check`, `mypy --strict` | Clean |
 | Backend tests (unit + integration) vs PostgreSQL 16 + pgvector 0.6.0 | 321 passed (after the Gemini extension; 272 before it) |
-| Same suite vs the Compose image `pgvector/pgvector:0.8.0-pg16` | 272 passed before the Gemini extension; after it, see CI |
+| Same suite vs the Compose image `pgvector/pgvector:0.8.0-pg16` | 320 passed in GitHub Actions (run 39841650486 on `e9e58e9`, the Gemini code commit) |
 | Gemini tests (`test_gemini.py`, `test_gemini_rag.py`, prune safety) | 49 tests, real SDK over `httpx.MockTransport`; no API key, no network |
 | Flutter `analyze` / `test` / `build web --no-web-resources-cdn` | No issues / 14 passed / built |
 | Browser run of the web build against the live API (1280 px and 390 px) | Dashboard, search, detail, correlation, chat (mock LLM), dependencies rendered with real data; no console errors |
 | Docker Compose: build, `migrate` (exit 0), API healthy, host seed into the Compose DB, API checks | Passed (sandbox build needed the proxy CA, see below) |
 | `pip-audit` of `backend/constraints.txt` | No known vulnerabilities (re-run after adding `google-genai` 2.29.0, which also moved `websockets` from 17.3 to 16.1.1, the newest it allows) |
 | Evaluation (`backend/eval/run_eval.py`) | See `docs/evaluation.md` |
-| GitHub Actions CI (run 39836335918 on `56eb43e`) | Passed: backend (ruff, format, mypy, pytest vs pgvector 0.8.0) and frontend (format, analyze, test, web build) |
+| GitHub Actions CI (run 39841650486 on `e9e58e9`; first green run 39836335918 on `56eb43e`) | Passed: backend (ruff, format, mypy, 320 pytest vs pgvector 0.8.0) and frontend (format, analyze, test, web build) |
 
 ## What was not verified, and why
 
