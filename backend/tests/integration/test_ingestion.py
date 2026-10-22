@@ -431,7 +431,11 @@ def test_osv_incremental_fetches_changed_records(
     upstream.routes[f"{OSV_BASE}/PyPI/all.zip"] = lambda r: httpx.Response(200, content=osv_zip({}))
     osv_run({"ecosystem": "PyPI"})  # establishes the watermark
     flask = fixture("osv_GHSA-m2qf-hxjv-5gpq.json")
-    csv = f"2999-01-01T00:00:00Z,{flask['id']}\n2999-01-01T00:00:00Z,MAL-2024-9\n2000-01-01T00:00:00Z,OLD-1\n"
+    csv = (
+        f"2999-01-01T00:00:00Z,{flask['id']}\n"
+        "2999-01-01T00:00:00Z,MAL-2024-9\n"
+        "2000-01-01T00:00:00Z,OLD-1\n"
+    )
     upstream.routes[f"{OSV_BASE}/PyPI/modified_id.csv"] = lambda r: httpx.Response(200, text=csv)
     upstream.set_json(f"{OSV_BASE}/PyPI/{flask['id']}.json", flask)
 

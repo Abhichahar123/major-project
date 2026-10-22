@@ -33,6 +33,8 @@ EXPECTED_TABLES = {
     "document_chunks",
     "embedding_models",
     "chunk_embeddings",
+    "advisories",
+    "advisory_packages",
 }
 
 
@@ -53,7 +55,7 @@ def test_downgrade_then_upgrade_is_reproducible(database_url: str) -> None:
         assert tables >= EXPECTED_TABLES
         with engine.connect() as connection:
             codes = connection.execute(text("SELECT code FROM sources ORDER BY id")).scalars()
-            assert list(codes) == ["kev", "cve5", "nvd", "attack", "capec", "embeddings"]
+            assert list(codes) == ["kev", "cve5", "nvd", "attack", "capec", "embeddings", "osv"]
             assert (
                 connection.execute(
                     text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
