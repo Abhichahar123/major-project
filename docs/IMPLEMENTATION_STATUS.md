@@ -8,8 +8,8 @@ Branch: `feat/full-platform` (from `main` at `8a27316`). Updated at every milest
 |---|---|---|
 | 1. Audit and architecture | complete | `docs/architecture.md` |
 | 2. FastAPI foundation | complete | Committed on `main` as `8a27316` |
-| 3. Database models and migrations | pending | |
-| 4. Data ingestion | pending | |
+| 3. Database models and migrations | complete | 18 tables, migrations `0001`, `0002`; round trip and drift tested |
+| 4. Data ingestion | in progress | KEV, CVE 5, NVD, ATT&CK, CAPEC done; OSV package data next |
 | 5. Vulnerability APIs and search | pending | |
 | 6. Embeddings and semantic retrieval | pending | |
 | 7. LLM and RAG | pending | |
@@ -35,3 +35,5 @@ These were checked in the sandbox used to build the project, not assumed.
 | Milestone | Commit | Pushed | Tests |
 |---|---|---|---|
 | Phase 2 foundation | `8a27316` | yes (`main`) | 49 passed (45 unit, 4 integration) |
+| Phase 3 models and migrations | `c752999` | yes | 54 passed |
+| Phase 4a ingestion (KEV, CVE 5, NVD, ATT&CK, CAPEC) | see git log | yes | 105 passed; real seed run: 1,754 KEV, 615 CAPEC, 867 ATT&CK, 324 CVE records; second run 100% unchanged |

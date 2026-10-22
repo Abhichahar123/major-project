@@ -50,13 +50,16 @@ def test_downgrade_then_upgrade_is_reproducible(database_url: str) -> None:
         assert set(inspect(engine).get_table_names()) <= {"alembic_version"}
         command.upgrade(config, "head")
         tables = set(inspect(engine).get_table_names())
-        assert EXPECTED_TABLES <= tables
+        assert tables >= EXPECTED_TABLES
         with engine.connect() as connection:
             codes = connection.execute(text("SELECT code FROM sources ORDER BY id")).scalars()
             assert list(codes) == ["kev", "cve5", "nvd", "attack", "capec", "embeddings"]
-            assert connection.execute(
-                text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
-            ).scalar_one() == 1
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+                ).scalar_one()
+                == 1
+            )
     finally:
         engine.dispose()
 

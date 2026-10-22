@@ -10,6 +10,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Any, Self
+from urllib.parse import urlsplit
 
 from pydantic import (
     Field,
@@ -49,6 +50,13 @@ class LogFormat(StrEnum):
     TEXT = "text"
 
 
+def _require_https(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        raise ValueError(f"must be an https:// URL, got {url!r}")
+    return url
+
+
 class Settings(BaseSettings):
     """Validated application settings."""
 
@@ -76,8 +84,34 @@ class Settings(BaseSettings):
     db_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
     db_statement_timeout_ms: int = Field(default=5000, ge=100, le=600_000)
 
-    # Required for administrative operations (e.g. triggering ingestion in a later phase).
+    # Required for administrative operations such as triggering ingestion jobs.
     admin_api_key: SecretStr | None = None
+
+    # --- Ingestion --------------------------------------------------------------------
+    # Feeds are tried in order; the GitHub mirror is the official CISA kev-data repository.
+    kev_feed_urls: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [
+            "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+            "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json",
+        ]
+    )
+    cve5_base_url: str = "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves"
+    nvd_api_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    nvd_api_key: SecretStr | None = None
+    attack_stix_url: str = (
+        "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/"
+        "enterprise-attack/enterprise-attack.json"
+    )
+    capec_stix_url: str = (
+        "https://raw.githubusercontent.com/mitre/cti/master/capec/2.1/stix-capec.json"
+    )
+    ingestion_http_timeout_seconds: float = Field(default=30.0, ge=1, le=300)
+    ingestion_max_retries: int = Field(default=4, ge=0, le=10)
+    ingestion_backoff_base_seconds: float = Field(default=1.0, ge=0, le=60)
+    ingestion_max_response_mb: int = Field(default=150, ge=1, le=1024)
+    ingestion_concurrency: int = Field(default=8, ge=1, le=32)
+    ingestion_statement_timeout_ms: int = Field(default=120_000, ge=1000, le=3_600_000)
+    ingestion_stale_job_minutes: int = Field(default=120, ge=5, le=10_080)
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -91,6 +125,27 @@ class Settings(BaseSettings):
         if not value.startswith("/") or len(value) < 2:
             raise ValueError("must start with '/' and not be empty, e.g. '/api/v1'")
         return value
+
+    @field_validator("kev_feed_urls", mode="before")
+    @classmethod
+    def _split_urls(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [url.strip() for url in value.split(",") if url.strip()]
+        return value
+
+    @field_validator("kev_feed_urls")
+    @classmethod
+    def _validate_feed_urls(cls, urls: list[str]) -> list[str]:
+        if not urls:
+            raise ValueError("at least one URL is required")
+        for url in urls:
+            _require_https(url)
+        return urls
+
+    @field_validator("cve5_base_url", "nvd_api_url", "attack_stix_url", "capec_stix_url")
+    @classmethod
+    def _validate_source_url(cls, url: str) -> str:
+        return _require_https(url).rstrip("/")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -149,6 +204,18 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment is Environment.PRODUCTION
+
+    @property
+    def ingestion_allowed_hosts(self) -> set[str]:
+        """Hosts ingestion may contact: exactly those of the configured source URLs."""
+        urls = [
+            *self.kev_feed_urls,
+            self.cve5_base_url,
+            self.nvd_api_url,
+            self.attack_stix_url,
+            self.capec_stix_url,
+        ]
+        return {(urlsplit(u).hostname or "").lower() for u in urls}
 
     @property
     def admin_operations_enabled(self) -> bool:

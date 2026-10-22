@@ -47,6 +47,11 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP", "N", "S", "SIM", "RUF"]
 ignore = ["B008"]  # FastAPI's Depends() in argument defaults
 
+[tool.ruff.lint.isort]
+# The local alembic/ migrations directory would otherwise make ruff treat the package as
+# first-party.
+known-third-party = ["alembic"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]  # asserts and fake credentials in tests
 "alembic/versions/**" = ["E501"]  # generated DDL strings

@@ -1,0 +1,346 @@
+{
+ "type": "bundle",
+ "id": "bundle--36b5a045-c220-403a-96c1-02500df07699",
+ "objects": [
+  {
+   "created": "2014-06-23T00:00:00.000Z",
+   "created_by_ref": "identity--e50ab59c-5c4f-4d40-bf6a-d58418d89bcd",
+   "description": "In applications, particularly web applications, access to functionality is mitigated by an authorization framework. This framework maps Access Control Lists (ACLs) to elements of the application's functionality; particularly URL's for web apps. In the case that the administrator failed to specify an ACL for a particular element, an attacker may be able to access it with impunity. An attacker with the ability to access functionality not properly constrained by ACLs can obtain sensitive information and possibly compromise the entire application. Such an attacker can access resources that must be available only to users at a higher privilege level, can access management sections of the application, or can run queries for data that they otherwise not supposed to.",
+   "external_references": [
+    {
+     "external_id": "CAPEC-1",
+     "source_name": "capec",
+     "url": "https://capec.mitre.org/data/definitions/1.html"
+    },
+    {
+     "external_id": "CWE-276",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/276.html"
+    },
+    {
+     "external_id": "CWE-285",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/285.html"
+    },
+    {
+     "external_id": "CWE-434",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/434.html"
+    },
+    {
+     "external_id": "CWE-693",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/693.html"
+    },
+    {
+     "external_id": "CWE-732",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/732.html"
+    },
+    {
+     "external_id": "CWE-1191",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1191.html"
+    },
+    {
+     "external_id": "CWE-1193",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1193.html"
+    },
+    {
+     "external_id": "CWE-1220",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1220.html"
+    },
+    {
+     "external_id": "CWE-1297",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1297.html"
+    },
+    {
+     "external_id": "CWE-1311",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1311.html"
+    },
+    {
+     "external_id": "CWE-1314",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1314.html"
+    },
+    {
+     "external_id": "CWE-1315",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1315.html"
+    },
+    {
+     "external_id": "CWE-1318",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1318.html"
+    },
+    {
+     "external_id": "CWE-1320",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1320.html"
+    },
+    {
+     "external_id": "CWE-1321",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1321.html"
+    },
+    {
+     "external_id": "CWE-1327",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/1327.html"
+    },
+    {
+     "description": "Hijack Execution Flow: ServicesFile Permissions Weakness",
+     "external_id": "T1574.010",
+     "source_name": "ATTACK",
+     "url": "https://attack.mitre.org/wiki/Technique/T1574/010"
+    }
+   ],
+   "id": "attack-pattern--92cdcd3d-d734-4442-afc3-4599f261498b",
+   "modified": "2022-09-29T00:00:00.000Z",
+   "name": "Accessing Functionality Not Properly Constrained by ACLs",
+   "object_marking_refs": [
+    "marking-definition--17d82bb2-eeeb-4898-bda5-3ddbcd2b799d"
+   ],
+   "spec_version": "2.1",
+   "type": "attack-pattern",
+   "x_capec_abstraction": "Standard",
+   "x_capec_can_precede_refs": [
+    "attack-pattern--9ad2c2eb-9939-4590-9683-2e789692d262"
+   ],
+   "x_capec_child_of_refs": [
+    "attack-pattern--fd669b7d-0e79-473c-9808-a860dfb0c871"
+   ],
+   "x_capec_consequences": {
+    "Access_Control": [
+     "Gain Privileges"
+    ],
+    "Authorization": [
+     "Gain Privileges"
+    ],
+    "Confidentiality": [
+     "Gain Privileges"
+    ]
+   },
+   "x_capec_domains": [
+    "Software",
+    "Hardware"
+   ],
+   "x_capec_example_instances": [
+    "\n               <xhtml:p>Implementing the Model-View-Controller (MVC) within Java EE's Servlet paradigm using a \"Single front controller\" pattern that demands that brokered HTTP requests be authenticated before hand-offs to other Action Servlets.</xhtml:p>\n               <xhtml:p>If no security-constraint is placed on those Action Servlets, such that positively no one can access them, the front controller can be subverted.</xhtml:p>\n            "
+   ],
+   "x_capec_execution_flow": "<h2> Execution Flow </h2><div><h3>Explore</h3><ol><li> <p> <b>Survey: </b>The attacker surveys the target application, possibly as a valid and authenticated user</p></li><table><tbody><tr><th>Techniques</th></tr><tr><td>Spidering web sites for all available links</td></tr><tr><td>Brute force guessing of resource names</td></tr><tr><td>Brute force guessing of user names / credentials</td></tr><tr><td>Brute force guessing of function names / actions</td></tr></tbody></table><li> <p> <b>Identify Functionality: </b>At each step, the attacker notes the resource or functionality access mechanism invoked upon performing specific actions</p></li><table><tbody><tr><th>Techniques</th></tr><tr><td>Use the web inventory of all forms and inputs and apply attack data to those inputs.</td></tr><tr><td>Use a packet sniffer to capture and record network traffic</td></tr><tr><td>Execute the software in a debugger and record API calls into the operating system or important libraries. This might occur in an environment other than a production environment, in order to find weaknesses that can be exploited in a production environment.</td></tr></tbody></table></ol></div><div><h3>Experiment</h3><ol><li> <p> <b>Iterate over access capabilities: </b>Possibly as a valid user, the attacker then tries to access each of the noted access mechanisms directly in order to perform functions not constrained by the ACLs.</p></li><table><tbody><tr><th>Techniques</th></tr><tr><td>Fuzzing of API parameters (URL parameters, OS API parameters, protocol parameters)</td></tr></tbody></table></ol></div>",
+   "x_capec_likelihood_of_attack": "High",
+   "x_capec_parent_of_refs": [
+    "attack-pattern--74bac7d9-693d-40d2-82bf-eb132f13bcaf",
+    "attack-pattern--3ba20dcc-8fec-4d74-a472-eb9694fe8142",
+    "attack-pattern--1abd165a-57e9-4b78-9221-7b6fcdc57810",
+    "attack-pattern--e8a8a8f5-3ad5-4d3f-a35b-48036147266b"
+   ],
+   "x_capec_prerequisites": [
+    "The application must be navigable in a manner that associates elements (subsections) of the application with ACLs.",
+    "The various resources, or individual URLs, must be somehow discoverable by the attacker",
+    "The administrator must have forgotten to associate an ACL or has associated an inappropriately permissive ACL with a particular navigable resource."
+   ],
+   "x_capec_resources_required": [
+    "None: No specialized resources are required to execute this type of attack."
+   ],
+   "x_capec_skills_required": {
+    "Low": "In order to discover unrestricted resources, the attacker does not need special tools or skills. They only have to observe the resources or access mechanisms invoked as each action is performed and then try and access those access mechanisms directly."
+   },
+   "x_capec_status": "Draft",
+   "x_capec_typical_severity": "High",
+   "x_capec_version": "3.9"
+  },
+  {
+   "created": "2014-06-23T00:00:00.000Z",
+   "created_by_ref": "identity--e50ab59c-5c4f-4d40-bf6a-d58418d89bcd",
+   "description": "\n            <xhtml:p>An adversary guesses, obtains, or \"rides\" a trusted identifier (e.g. session ID, resource ID, cookie, etc.) to perform authorized actions under the guise of an authenticated user or service.</xhtml:p>\n         ",
+   "external_references": [
+    {
+     "external_id": "CAPEC-21",
+     "source_name": "capec",
+     "url": "https://capec.mitre.org/data/definitions/21.html"
+    },
+    {
+     "external_id": "CWE-290",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/290.html"
+    },
+    {
+     "external_id": "CWE-302",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/302.html"
+    },
+    {
+     "external_id": "CWE-346",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/346.html"
+    },
+    {
+     "external_id": "CWE-539",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/539.html"
+    },
+    {
+     "external_id": "CWE-6",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/6.html"
+    },
+    {
+     "external_id": "CWE-384",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/384.html"
+    },
+    {
+     "external_id": "CWE-664",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/664.html"
+    },
+    {
+     "external_id": "CWE-602",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/602.html"
+    },
+    {
+     "external_id": "CWE-642",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/642.html"
+    },
+    {
+     "description": "Access Token Manipulation",
+     "external_id": "T1134",
+     "source_name": "ATTACK",
+     "url": "https://attack.mitre.org/wiki/Technique/T1134"
+    },
+    {
+     "description": "Steal Application Access Token",
+     "external_id": "T1528",
+     "source_name": "ATTACK",
+     "url": "https://attack.mitre.org/wiki/Technique/T1528"
+    },
+    {
+     "description": "Steal Web Session Cookie",
+     "external_id": "T1539",
+     "source_name": "ATTACK",
+     "url": "https://attack.mitre.org/wiki/Technique/T1539"
+    },
+    {
+     "description": "G. Hoglund, G. McGraw, Exploiting Software: How to Break Code, 2004--02, Addison-Wesley",
+     "external_id": "REF-1",
+     "source_name": "reference_from_CAPEC"
+    }
+   ],
+   "id": "attack-pattern--2351ee64-dd85-4bc3-bb43-aaa2ca5c1228",
+   "modified": "2022-09-29T00:00:00.000Z",
+   "name": "Exploitation of Trusted Identifiers",
+   "object_marking_refs": [
+    "marking-definition--17d82bb2-eeeb-4898-bda5-3ddbcd2b799d"
+   ],
+   "spec_version": "2.1",
+   "type": "attack-pattern",
+   "x_capec_abstraction": "Meta",
+   "x_capec_consequences": {
+    "Access_Control": [
+     "Gain Privileges"
+    ],
+    "Authentication": [
+     "Gain Privileges"
+    ],
+    "Confidentiality": [
+     "Gain Privileges",
+     "Read Data"
+    ],
+    "Integrity": [
+     "Modify Data"
+    ]
+   },
+   "x_capec_domains": [
+    "Software"
+   ],
+   "x_capec_example_instances": [
+    "\n               <xhtml:p>Thin client applications like web applications are particularly vulnerable to session ID attacks. Since the server has very little control over the client, but still must track sessions, data, and objects on the server side, cookies and other mechanisms have been used to pass the key to the session data between the client and server. When these session keys are compromised it is trivial for an adversary to impersonate a user's session in effect, have the same capabilities as the authorized user. There are two main ways for an adversary to exploit session IDs.</xhtml:p>\n               <xhtml:p>A brute force attack involves an adversary repeatedly attempting to query the system with a spoofed session header in the HTTP request. A web server that uses a short session ID can be easily spoofed by trying many possible combinations so the parameters session-ID= 1234 has few possible combinations, and an adversary can retry several hundred or thousand request with little to no issue on their side.</xhtml:p>\n               <xhtml:p>The second method is interception, where a tool such as wireshark is used to sniff the wire and pull off any unprotected session identifiers. The adversary can then use these variables and access the application.</xhtml:p>\n            ",
+    "For example, in a message queuing system that allows service requesters to post messages to its queue through an open channel (such as anonymous FTP), authorization is done through checking group or role membership contained in the posted message. However, there is no proof that the message itself, the information in the message (such group or role membership), or the process that wrote the message to the queue is authentic and authorized to do so."
+   ],
+   "x_capec_execution_flow": "<h2> Execution Flow </h2><div><h3>Explore</h3><ol><li> <p> <b>Survey the application for Indicators of Susceptibility: </b>Using a variety of methods, until one is found that applies to the target, the adversary probes for cookies, session tokens, or entry points that bypass identifiers altogether.</p></li><table><tbody><tr><th>Techniques</th></tr><tr><td>Spider all available pages</td></tr><tr><td>Attack known bad interfaces</td></tr><tr><td>Search outward-facing configuration and properties files for identifiers.</td></tr></tbody></table></ol></div><div><h3>Experiment</h3><ol><li> <p> <b>Fetch samples: </b>The adversary fetches many samples of identifiers. This may be through legitimate access (logging in, legitimate connections, etc.) or via systematic probing.</p></li><table><tbody><tr><th>Techniques</th></tr><tr><td>An adversary makes many anonymous connections and records the session IDs assigned.</td></tr><tr><td>An adversary makes authorized connections and records the session tokens or credentials issued.</td></tr><tr><td>An adversary gains access to (legitimately or illegitimately) a nearby system (e.g., in the same operations network, DMZ, or local network) and makes a connection from it, attempting to gain the same privileges as a trusted system.</td></tr></tbody></table></ol></div><div><h3>Exploit</h3><ol><li> <p> <b>Impersonate: </b>An adversary can use successful experiments or authentications to impersonate an authorized user or system or to laterally move within a system or application</p></li><li> <p> <b>Spoofing: </b>Malicious data can be injected into the target system or into a victim user's system by an adversary. The adversary can also pose as a legitimate user to perform social engineering attacks.</p></li><li> <p> <b>Data Exfiltration: </b>The adversary can obtain sensitive data contained within the system or application.</p></li></ol></div>",
+   "x_capec_extended_description": "\n            <xhtml:p>Attacks leveraging trusted identifiers typically result in the adversary laterally moving within the local network, since users are often allowed to authenticate to systems/applications within the network using the same identifier. This allows the adversary to obtain sensitive data, download/install malware on the system, pose as a legitimate user for social engineering purposes, and more.</xhtml:p>\n            <xhtml:p>Attacks on trusted identifiers take advantage of the fact that some software accepts user input without verifying its authenticity. Many server side processes are vulnerable to these attacks because the server to server communications have not been analyzed from a security perspective or the processes \"trust\" other systems because they are behind a firewall. Similarly, servers that use easy to guess or spoofable schemes for representing digital identity can also be vulnerable. Such systems frequently use schemes without cryptography and digital signatures (or with broken cryptography). Identifiers may be guessed or obtained due to insufficient randomness, poor protection (passed/stored in the clear), lack of integrity (unsigned), or improper correlation with access control policy enforcement points. Exposed configuration and properties files that contain sensitive data may additionally provide an adversary with the information needed to obtain these identifiers. An adversary may also \"ride\" an identifier via a malicious link, as is the case in Cross Site Request Forgery (CSRF) attacks.</xhtml:p>\n            <xhtml:p>Regardless of the attack vector, successful spoofing and impersonation of trusted credentials can lead to an adversary breaking authentication, authorization, and audit controls with the target system or application.</xhtml:p>\n         ",
+   "x_capec_likelihood_of_attack": "High",
+   "x_capec_parent_of_refs": [
+    "attack-pattern--414d0884-4f46-4a51-b4ea-72125c7f5f9e",
+    "attack-pattern--56b4150a-10fd-42cd-85ff-1063625ec5f4",
+    "attack-pattern--63f43efb-7a34-4302-b3dc-8245100fdea9",
+    "attack-pattern--0939f361-ea31-454b-ae3d-4af2411b756d"
+   ],
+   "x_capec_prerequisites": [
+    "Server software must rely on weak identifier proof and/or verification schemes.",
+    "Identifiers must have long lifetimes and potential for reusability.",
+    "Server software must allow concurrent sessions to exist."
+   ],
+   "x_capec_resources_required": [
+    "Ability to deploy software on network.",
+    "Ability to communicate synchronously or asynchronously with server."
+   ],
+   "x_capec_skills_required": {
+    "Low": "To achieve a direct connection with the weak or non-existent server session access control, and pose as an authorized user"
+   },
+   "x_capec_status": "Stable",
+   "x_capec_typical_severity": "High",
+   "x_capec_version": "3.9"
+  },
+  {
+   "created": "2017-02-06T00:00:00.000Z",
+   "created_by_ref": "identity--e50ab59c-5c4f-4d40-bf6a-d58418d89bcd",
+   "description": "An adversary attempts to exploit an application by injecting additional, malicious content during its processing of serialized objects. Developers leverage serialization in order to convert data or state into a static, binary format for saving to disk or transferring over a network. These objects are then deserialized when needed to recover the data/state. By injecting a malformed object into a vulnerable application, an adversary can potentially compromise the application by manipulating the deserialization process. This can result in a number of unwanted outcomes, including remote code execution.",
+   "external_references": [
+    {
+     "external_id": "CAPEC-586",
+     "source_name": "capec",
+     "url": "https://capec.mitre.org/data/definitions/586.html"
+    },
+    {
+     "external_id": "CWE-502",
+     "source_name": "cwe",
+     "url": "http://cwe.mitre.org/data/definitions/502.html"
+    },
+    {
+     "description": "Deserialization of Untrusted Data, 2017--01, OWASP",
+     "external_id": "REF-468",
+     "source_name": "reference_from_CAPEC"
+    }
+   ],
+   "id": "attack-pattern--5e767629-8d94-46f3-a277-741d163bff95",
+   "modified": "2020-12-17T00:00:00.000Z",
+   "name": "Object Injection",
+   "object_marking_refs": [
+    "marking-definition--17d82bb2-eeeb-4898-bda5-3ddbcd2b799d"
+   ],
+   "spec_version": "2.1",
+   "type": "attack-pattern",
+   "x_capec_abstraction": "Meta",
+   "x_capec_consequences": {
+    "Authorization": [
+     "Execute Unauthorized Commands (Functions that assume information in the deserialized object is valid could be exploited.)"
+    ],
+    "Availability": [
+     "Resource Consumption (If a function is making an assumption on when to terminate, based on a sentry in a string, it could easily never terminate and exhaust available resources.)"
+    ],
+    "Integrity": [
+     "Modify Data (Attackers can modify objects or data that was assumed to be safe from modification.)"
+    ]
+   },
+   "x_capec_domains": [
+    "Software"
+   ],
+   "x_capec_likelihood_of_attack": "Medium",
+   "x_capec_prerequisites": [
+    "The target application must unserialize data before validation."
+   ],
+   "x_capec_status": "Draft",
+   "x_capec_typical_severity": "High",
+   "x_capec_version": "3.9"
+  }
+ ]
+}

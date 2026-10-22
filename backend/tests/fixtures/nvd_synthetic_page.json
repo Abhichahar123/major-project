@@ -1,0 +1,75 @@
+{
+  "_comment": "SYNTHETIC TEST DATA in the NVD CVE API 2.0 response format. Scores, CPEs and statuses are invented for testing the parser and must not be read as NVD analysis.",
+  "resultsPerPage": 2,
+  "startIndex": 0,
+  "totalResults": 2,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2023-30861",
+        "sourceIdentifier": "security-advisories@github.com",
+        "published": "2023-05-02T18:15:52.787",
+        "lastModified": "2024-11-21T08:00:56.000",
+        "vulnStatus": "Modified",
+        "descriptions": [
+          {"lang": "en", "value": "Synthetic NVD description that must not replace the CNA text."},
+          {"lang": "es", "value": "Descripcion sintetica."}
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "nvd@nist.gov",
+              "type": "Primary",
+              "cvssData": {"version": "3.1", "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "baseScore": 7.5, "baseSeverity": "HIGH"}
+            },
+            {
+              "source": "security-advisories@github.com",
+              "type": "Secondary",
+              "cvssData": {"version": "3.1", "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N", "baseScore": 5.9, "baseSeverity": "MEDIUM"}
+            }
+          ],
+          "cvssMetricV2": [
+            {"source": "nvd@nist.gov", "type": "Primary", "cvssData": {"version": "2.0", "vectorString": "AV:N/AC:L/Au:N/C:P/I:N/A:N", "baseScore": 5.0}}
+          ]
+        },
+        "weaknesses": [
+          {"source": "nvd@nist.gov", "type": "Primary", "description": [{"lang": "en", "value": "NVD-CWE-noinfo"}]},
+          {"source": "security-advisories@github.com", "type": "Secondary", "description": [{"lang": "en", "value": "CWE-539"}]}
+        ],
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {"vulnerable": true, "criteria": "cpe:2.3:a:palletsprojects:flask:*:*:*:*:*:*:*:*", "versionEndExcluding": "2.2.5"},
+                  {"vulnerable": true, "criteria": "cpe:2.3:a:palletsprojects:flask:*:*:*:*:*:*:*:*", "versionStartIncluding": "2.3.0", "versionEndExcluding": "2.3.2"},
+                  {"vulnerable": false, "criteria": "cpe:2.3:o:example:not_vulnerable_platform:-:*:*:*:*:*:*:*"}
+                ]
+              }
+            ]
+          }
+        ],
+        "references": [
+          {"url": "https://github.com/pallets/flask/security/advisories/GHSA-m2qf-hxjv-5gpq", "source": "security-advisories@github.com", "tags": ["Vendor Advisory"]},
+          {"url": "javascript:alert(1)", "source": "synthetic", "tags": []}
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2099-0001",
+        "sourceIdentifier": "synthetic@example.org",
+        "published": "2099-01-01T00:00:00.000",
+        "lastModified": "2099-01-02T00:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [{"lang": "en", "value": "Synthetic untracked CVE used to test only_tracked filtering."}],
+        "metrics": {},
+        "references": []
+      }
+    }
+  ]
+}

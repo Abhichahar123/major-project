@@ -30,6 +30,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -107,6 +108,8 @@ class IngestionJob(Base):
     records_unchanged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     records_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text)
+    # Adapter-specific outputs, e.g. {"removed": 2, "catalog_version": "2026.10.21"}.
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     source: Mapped[Source] = relationship(back_populates="jobs")
     errors: Mapped[list[IngestionError]] = relationship(
@@ -224,6 +227,10 @@ class CvssMetric(Base):
     vector: Mapped[str | None] = mapped_column(String(200))
     base_score: Mapped[float] = mapped_column(Float, nullable=False)
     base_severity: Mapped[str | None] = mapped_column(String(10))
+    # Display precedence: 0 = CNA, 1 = NVD primary, 2 = CISA-ADP, 3 = other.
+    provider_rank: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=3, server_default="3"
+    )
 
     vulnerability: Mapped[Vulnerability] = relationship(back_populates="cvss_metrics")
 
