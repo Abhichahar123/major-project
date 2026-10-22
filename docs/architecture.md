@@ -1,7 +1,7 @@
 # Architecture
 
-This document describes the system as implemented. Where a component is planned but not
-yet built, it is marked as such; `docs/IMPLEMENTATION_STATUS.md` tracks progress.
+This document describes the system as implemented. `docs/IMPLEMENTATION_STATUS.md` records
+what was verified and how.
 
 ## 1. Overview
 
@@ -90,7 +90,14 @@ erDiagram
     attack_techniques |o--o{ capec_attack_mappings : "joined by technique_id"
     document_chunks ||--o{ chunk_embeddings : embedded_as
     embedding_models ||--o{ chunk_embeddings : ""
+    advisories ||--o{ advisory_packages : affects
+    advisories }o--o{ vulnerabilities : "cve_ids alias"
 ```
+
+Migrations:
+- `0001_initial`: the core schema, the `vector` extension and the `sources` rows;
+- `0002_job_details_cvss_rank`: job details and CVSS provider rank;
+- `0003_osv_advisories`: OSV advisory tables.
 
 Principles:
 
@@ -174,6 +181,34 @@ sequenceDiagram
 * Facts (CVSS, KEV status, CWE) shown with an answer come from the database, not the model.
 * If the LLM is unavailable or times out, the API returns the retrieved evidence with
   `mode = "evidence_only"` instead of failing.
+
+Retrieval details (`app/retrieval/search.py`):
+
+* **Keyword list.** Any-term full-text matching over chunk `tsvector`s, using
+  English-stemmed prefix lexemes. Results are ranked by the summed IDF of the matched
+  terms (document frequencies come from `ts_stat` and are cached), and `ts_rank_cd`
+  breaks ties.
+* **Vector list.** Cosine distance for the configured model. The scan is exact up to
+  20,000 vectors; above that the HNSW index is used, with `ef_search=200`. The embeddings
+  job keeps one model per index so the approximate search stays accurate.
+* **Fusion.** Reciprocal rank fusion with k=60. A lexical embedder's list carries weight
+  0.02, so it only breaks ties; a semantic model's list carries weight 1.0.
+* **Relevance gate for RAG.** A chunk counts as evidence only if it is one of the CVEs
+  the question names, covers at least 50% of the question's IDF weight, or (with a
+  semantic model) lies within cosine distance 0.55.
+
+## 6a. Dependency analysis
+
+```mermaid
+flowchart LR
+    U[Upload ≤ 512 KB] --> P[Parser: requirements / package-lock / package.json]
+    P -->|pinned| O[OSV advisories: ecosystem + normalized name]
+    P -->|unpinned| O
+    O -->|OSV range evaluation PEP 440 / SemVer| C{in range?}
+    C -->|yes, pinned| F1[confirmed]
+    C -->|unknown or unpinned| F2[uncertain]
+    P --> N[CVE records: product-name match] -->|not covered by OSV| F2
+```
 
 ## 7. Security model (summary)
 

@@ -1,238 +1,156 @@
 # Indigenous Large Language Models for Cybersecurity Vulnerability Discovery and Threat Intelligence
 
-A final-year engineering project: an AI-assisted cybersecurity platform that will collect
-public vulnerability and threat-intelligence data (CVE/NVD, CISA KEV, MITRE ATT&CK),
-store it in PostgreSQL, and answer security questions with a self-hosted open-weight LLM
-using retrieval-augmented generation (RAG) with source citations.
+A final-year B.Tech project. The platform collects public, authoritative security data,
+stores it with full provenance, and helps an analyst to:
 
-## Current status: Phase 2, backend foundation
+* **search** CVEs by keyword, product, CWE, severity and exploitation status;
+* **understand** a CVE: every CVSS score with its provider, CWEs, affected versions, CISA
+  KEV status, package advisories with fixed versions;
+* **correlate** CVEs with CWE, CAPEC and MITRE ATT&CK through documented rules that label
+  each link *authoritative* or *inferred*;
+* **ask questions** answered by a locally hosted open-weight LLM (Ollama) using
+  retrieval-augmented generation, with citations, database facts and explicit
+  "insufficient evidence" behaviour;
+* **check dependencies** (`requirements.txt`, `package-lock.json`, `package.json`)
+  against OSV advisories, separating confirmed from uncertain matches.
 
-What exists today:
+![Dashboard](docs/images/1-dashboard.png)
 
-| Component | Status |
-|---|---|
-| FastAPI application (app factory, versioned `/api/v1` prefix) | Implemented |
-| `GET /health` and `GET /api/v1/health` (liveness) | Implemented |
-| `GET /api/v1/health/db` (PostgreSQL connectivity) | Implemented |
-| Environment-based configuration with startup validation | Implemented |
-| Structured JSON logging with secret redaction and request IDs | Implemented |
-| Centralized error handling (RFC 9457 problem details, no stack traces to clients) | Implemented |
-| CORS with an explicit origin allowlist | Implemented |
-| SQLAlchemy 2.x engine and session management (psycopg 3) | Implemented |
-| Docker Compose with PostgreSQL 16 + pgvector | Configured |
-| Unit tests and database integration tests | Implemented |
+| CVE detail | Threat correlation | Grounded Q&A | Dependency analysis |
+|---|---|---|---|
+| ![](docs/images/3-detail.png) | ![](docs/images/4-correlation.png) | ![](docs/images/6-chat.png) | ![](docs/images/7-dependencies.png) |
 
-What does **not** exist yet: vulnerability ingestion, the database schema and Alembic
-migrations, search APIs, embeddings, the LLM/Ollama integration, RAG chat, dependency
-analysis, admin endpoints and the Flutter frontend. See [Roadmap](#roadmap).
-
-## Repository layout
+## Architecture
 
 ```
-.
-├── compose.yaml            # PostgreSQL (pgvector) + API for local development
-├── .env.example            # configuration template, copy to .env
-└── backend/
-    ├── pyproject.toml      # dependencies and tool configuration
-    ├── constraints.txt     # exact tested dependency versions
-    ├── Dockerfile
-    ├── app/
-    │   ├── main.py         # create_app() and the ASGI `app`
-    │   ├── api/routes/health.py
-    │   ├── core/           # config.py, logging.py, exceptions.py
-    │   └── db/             # session.py (engine/sessions), base.py (ORM base)
-    └── tests/              # unit tests; integration/ needs a real PostgreSQL
+CISA KEV · CVE Program (CVE JSON 5) · NVD · MITRE ATT&CK · MITRE CAPEC · OSV
+        │  allowlisted HTTPS, retries, size caps, per-record validation
+        ▼
+backend/app/ingestion ──► PostgreSQL 16 + pgvector ◄── backend/app/retrieval (chunks, embeddings, hybrid search)
+                               ▲         ▲                          │
+            backend/app/correlation   backend/app/dependencies   backend/app/rag + llm (Ollama)
+                               └─────────┴──────── FastAPI /api/v1 ─┘
+                                                     ▲
+                                         frontend/flutter_app (web, Android)
 ```
 
-## Prerequisites
+See [docs/architecture.md](docs/architecture.md) for components, data model and data flows.
 
-- Python 3.11 or newer (developed and tested on Python 3.13)
-- Docker with the Compose plugin, for PostgreSQL (or any PostgreSQL 16 with pgvector)
-- `git`
-
-## Setup
-
-```bash
-git clone https://github.com/Abhichahar123/major-project.git
-cd major-project
-cp .env.example .env
-```
-
-Edit `.env`:
-
-1. Set `POSTGRES_PASSWORD` to a strong value (letters, digits, `-` and `_`).
-2. Put the same password into `DATABASE_URL` in place of `REPLACE_WITH_POSTGRES_PASSWORD`.
-
-To generate a password or admin key:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-`.env` is git-ignored. Never commit it.
-
-## Configuration
-
-All settings come from environment variables or `.env`. Real environment variables take
-precedence over `.env`. Names are case-insensitive.
-
-| Variable | Default | Description |
+| Area | Where | Docs |
 |---|---|---|
-| `DATABASE_URL` | **required** | `postgresql+psycopg://user:password@host:5432/db` |
-| `APP_NAME` | `Cyber Threat Intelligence API` | Shown in health responses and API docs |
-| `ENVIRONMENT` | `development` | `development`, `test` or `production` |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `LOG_FORMAT` | `json` | `json` (one object per line) or `text` |
-| `API_V1_PREFIX` | `/api/v1` | Prefix for versioned endpoints |
-| `CORS_ORIGINS` | empty (CORS disabled) | Comma-separated allowlist, e.g. `http://localhost:3000` |
-| `ADMIN_API_KEY` | empty | Key for admin operations (used from Phase 3). Admin operations stay disabled unless it is at least 32 characters |
-| `DB_POOL_SIZE` | `5` | Connection pool size |
-| `DB_MAX_OVERFLOW` | `5` | Extra connections allowed above the pool size |
-| `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Connection timeout |
-| `DB_STATEMENT_TIMEOUT_MS` | `5000` | PostgreSQL `statement_timeout` per connection |
-| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_PORT` | `cti` / `cti` / **required** / `5432` | Used by Docker Compose |
-| `API_PORT` | `8000` | Host port for the API container |
+| Backend API | `backend/app` (FastAPI, SQLAlchemy 2, Alembic) | [docs/api.md](docs/api.md) |
+| Ingestion CLI | `python -m app.ingestion` | [docs/deployment.md](docs/deployment.md) |
+| Frontend | `frontend/flutter_app` (Flutter 3.47) | [frontend/flutter_app/README.md](frontend/flutter_app/README.md) |
+| Security | | [docs/security.md](docs/security.md) |
+| Evaluation | `backend/eval` | [docs/evaluation.md](docs/evaluation.md) |
+| Demo and viva | | [docs/demo-guide.md](docs/demo-guide.md) |
+| Troubleshooting | | [docs/troubleshooting.md](docs/troubleshooting.md) |
+| Progress log | | [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) |
 
-Invalid or missing settings stop the application at startup with a message naming each
-variable. Values are never printed. For example:
-
-```
-app.core.exceptions.ConfigurationError: Invalid application configuration:
-  - DATABASE_URL: Field required
-Set these environment variables or add them to .env (see .env.example).
-```
-
-`ENVIRONMENT=production` adds stricter checks:
-- `ADMIN_API_KEY` must be at least 32 characters and not a placeholder.
-- `CORS_ORIGINS` may not contain `*` and must use `https://`.
-- `LOG_LEVEL` may not be `DEBUG`.
-- Interactive docs (`/docs`, OpenAPI JSON) are switched off.
-
-## Start PostgreSQL with Docker Compose
+## Quick start (Docker Compose)
 
 ```bash
-docker compose up -d db
-docker compose ps          # wait until db shows "healthy"
+cp .env.example .env
+# set POSTGRES_PASSWORD, ADMIN_API_KEY (python -c "import secrets;print(secrets.token_urlsafe(32))")
+# and DATABASE_URL with the same password (used by the CLI on the host)
+docker compose up -d --build                  # db, migrations, API on http://localhost:8000
+curl http://localhost:8000/health/ready
 ```
 
-The database:
-- runs the `pgvector/pgvector:0.8.0-pg16` image
-- stores data in the named volume `cti_pgdata`
-- listens only on `127.0.0.1:${POSTGRES_PORT}`
-
-Stopping it with `docker compose down` keeps the volume. Adding `-v` deletes your data.
-
-### Enabling pgvector
-
-The image ships the extension, but each database must enable it once. Phase 3 does this in
-the first Alembic migration. To enable it by hand:
+Load the bounded demo dataset:
+- the full KEV catalog;
+- 300 recent KEV CVE records and 24 package CVEs;
+- ATT&CK, CAPEC and the PyPI OSV export.
 
 ```bash
-# Replace "cti" if you changed POSTGRES_USER or POSTGRES_DB.
-docker compose exec db psql -U cti -d cti \
-  -c "CREATE EXTENSION IF NOT EXISTS vector;" \
-  -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+docker compose exec api python -m app.ingestion seed          # about 3 minutes
+docker compose exec api python -m app.ingestion seed --with-npm   # optional: also the npm export (~220 MB download)
 ```
 
-## Run the API locally
+The seed also builds the search index. Optional pieces:
 
-From the `backend` directory, using a virtual environment:
+```bash
+# Local LLM and semantic embeddings (models are NOT downloaded automatically)
+docker compose --profile llm up -d ollama
+docker compose exec ollama ollama pull llama3.1:8b        # ~4.7 GB
+docker compose exec ollama ollama pull nomic-embed-text   # ~270 MB; then set EMBEDDING_PROVIDER=ollama
+docker compose exec api python -m app.ingestion sync embeddings
+
+# Web UI on http://localhost:8090
+(cd frontend/flutter_app && flutter build web --release --no-web-resources-cdn \
+   --dart-define=API_BASE_URL=http://localhost:8000)
+docker compose --profile web up -d web
+```
+
+Without Ollama, the platform still works: search uses the built-in lexical embedder, and
+chat returns the retrieved evidence (`mode: evidence_only`) instead of a generated answer.
+
+## Development without Docker
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate              # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate        # Python 3.11+
 pip install -e ".[dev]" -c constraints.txt
-uvicorn app.main:app --reload --port 8000
+alembic upgrade head                                     # PostgreSQL 16 with pgvector required
+python -m app.ingestion seed
+uvicorn app.main:app --reload
 ```
 
-The app reads `../.env` (the repository root) when started from `backend/`. Interactive API
-docs are at <http://localhost:8000/docs> outside production.
-
-### Or run everything in Docker
+Common ingestion commands:
 
 ```bash
-docker compose up -d --build
+python -m app.ingestion sync kev
+python -m app.ingestion sync cve5 --mode ids --ids CVE-2021-44228 CVE-2023-4966
+python -m app.ingestion sync cve5 --mode delta           # refresh changed records
+python -m app.ingestion sync osv --ecosystem npm
+python -m app.ingestion sync embeddings
+python -m app.ingestion jobs
 ```
 
-Inside the Compose network the API connects to the host `db`. Compose builds that URL
-itself, so the `DATABASE_URL` line in `.env` is only used when running uvicorn on the host.
-
-## Health endpoints
+## Tests and quality checks
 
 ```bash
-curl -i http://localhost:8000/health
-# HTTP/1.1 200 OK
-# x-request-id: 72b05dcc6d7648cc8f5353b2f02ef223
-# {"status":"ok","service":"Cyber Threat Intelligence API","version":"0.1.0"}
+cd backend
+ruff check . && ruff format --check . && mypy
+pytest                                   # unit tests; integration tests are skipped
+TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/cti_test pytest   # everything
+python -m eval.run_eval                  # retrieval / RAG pipeline / dependency evaluation
 
-curl http://localhost:8000/api/v1/health
-# {"status":"ok","service":"Cyber Threat Intelligence API","version":"0.1.0"}
-
-curl http://localhost:8000/api/v1/health/db
-# 200 {"status":"ok","database":"ok","latency_ms":24.17}
-# 503 {"status":"unavailable","database":"unreachable","latency_ms":null}   (database down)
+cd ../frontend/flutter_app
+flutter analyze && flutter test
 ```
 
-Errors use [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details with content
-type `application/problem+json`:
+Integration tests need a **disposable** database whose name contains `test`: they drop and
+recreate the schema. CI (`.github/workflows/ci.yml`) runs everything against
+`pgvector/pgvector:0.8.0-pg16`.
 
-```json
-{"type":"about:blank","title":"Not Found","status":404,"detail":"Not Found",
- "code":"not_found","request_id":"efc85279213e42fbaad3a3cb90436443"}
-```
+Latest local results: 272 backend tests passed (against pgvector 0.6.0 and 0.8.0), and 14
+Flutter tests passed. Measured evaluation results are in
+[docs/evaluation.md](docs/evaluation.md).
 
-Every response carries an `X-Request-ID` header. Server logs use the same ID, so quote it
-when reporting a problem. Unexpected errors return a generic 500 message. Tracebacks are
-logged server-side only, with credentials redacted.
+## Data sources and licences
 
-## Tests and code quality
+| Source | Content | Terms |
+|---|---|---|
+| [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (and the official `cisagov/kev-data` mirror) | Known exploited vulnerabilities | U.S. Government work |
+| [CVE Program](https://github.com/CVEProject/cvelistV5) | CVE records (CNA and CISA-ADP containers) | [CVE Terms of Use](https://www.cve.org/Legal/TermsOfUse) |
+| [NVD API 2.0](https://nvd.nist.gov/developers) | CVSS/CWE/CPE enrichment (optional) | NVD terms; an API key is recommended |
+| [MITRE ATT&CK](https://attack.mitre.org/) and [CAPEC](https://capec.mitre.org/) | Techniques, attack patterns, mappings | MITRE terms of use |
+| [OSV](https://osv.dev/) | Package advisories (PyPI, npm) | CC-BY 4.0 (per source) |
 
-From `backend/` with the virtual environment active:
-
-```bash
-pytest                       # unit tests; integration tests are skipped
-ruff check . && ruff format --check .
-mypy
-```
-
-The integration tests need a running PostgreSQL. With the Compose database up:
-
-```bash
-TEST_DATABASE_URL="postgresql+psycopg://cti:<password>@localhost:5432/cti" pytest -m integration
-```
-
-They check a real `SELECT 1`, the `/api/v1/health/db` endpoint, that `statement_timeout` is
-applied, and that pgvector is available on the server. Set `EXPECT_PGVECTOR=0` to skip the
-pgvector check on a server without it.
-
-Unit tests never contact a database: they replace the engine with a mock, or point it at
-`127.0.0.1:1`, where nothing is listening, to exercise the failure path.
+The platform is for **defensive analysis** of public data and of manifests you are
+authorised to inspect. It does not execute uploaded files, run exploits or scan systems.
 
 ## Known limitations
 
-- No business functionality yet; this phase is infrastructure only.
-- Ollama and the LLM/RAG pipeline are **not** implemented or configured.
-- The schema and Alembic migrations arrive in Phase 3. `app/db/base.py` only defines the
-  declarative base and constraint naming convention.
-- `ADMIN_API_KEY` is validated but no endpoint uses it yet.
-- No rate limiting yet (planned with the public search and chat endpoints).
-- `POSTGRES_PASSWORD` is placed into a URL by Compose, so avoid `@ : / ? #` in it.
-- Starlette prints a deprecation warning about `httpx` in its test client. Tests still pass;
-  this will be revisited when upgrading dependencies.
-
-## Roadmap
-
-| Phase | Scope |
-|---|---|
-| 1 | Analysis and architecture (done) |
-| 2 | Backend foundation (this phase) |
-| 3 | Database schema, Alembic, ingestion of CISA KEV and NVD CVE data, admin-protected ingestion endpoints |
-| 4 | MITRE ATT&CK/CAPEC/CWE data and evidence-backed CVE-to-technique correlation |
-| 5 | Vulnerability and technique search APIs |
-| 6 | Embeddings and hybrid (full-text + pgvector) retrieval |
-| 7 | Ollama LLM provider and RAG chat with citations |
-| 8 | Dependency manifest vulnerability analysis |
-| 9 | Vulnerability classification and prioritisation |
-| 10 | Flutter frontend |
-| 11 | Hardening, evaluation and deployment |
+* No real LLM or semantic embedding model could run in the development sandbox. They are
+  integrated and tested with mocked HTTP, and the evaluation used the lexical hashing
+  embedder and a mock LLM ([details](docs/evaluation.md)).
+* NVD ingestion is implemented but was only exercised with synthetic fixtures (the NVD
+  API was unreachable from the sandbox). The OSV.dev online lookup is likewise
+  mock-tested and off by default.
+* The Android build was not run (no Android SDK in the sandbox); the web build was built
+  and exercised in a browser.
+* Rate limits are per process; there are no user accounts (public read API with an admin
+  key).
+* Dependency analysis covers PyPI and npm only.

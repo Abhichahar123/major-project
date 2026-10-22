@@ -1,17 +1,36 @@
-# Local development stack: PostgreSQL (with pgvector available) and the FastAPI backend.
+# Local development and demo stack.
 #
-#   cp .env.example .env    # then set POSTGRES_PASSWORD
-#   docker compose up -d db               # database only
-#   docker compose up -d --build          # database + API
+#   cp .env.example .env              # then set POSTGRES_PASSWORD (and ADMIN_API_KEY)
+#   docker compose up -d --build      # database, migrations, API
+#   docker compose --profile llm up -d          # + Ollama for local LLM and embeddings
+#   docker compose --profile web up -d          # + nginx serving the Flutter web build
 #
-# Ports are bound to 127.0.0.1 so neither service is reachable from other machines.
+# Every port is bound to 127.0.0.1, so no service is reachable from other machines.
 
 name: cti
 
+x-api-environment: &api-environment
+  APP_NAME: ${APP_NAME:-Cyber Threat Intelligence API}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+  # Inside the Compose network the database host is the service name "db".
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cti}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cti}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-hashing}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+  LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+  LLM_MODEL: ${LLM_MODEL:-llama3.1:8b}
+  # The "ollama" service from the llm profile; set OLLAMA_BASE_URL to use a host install.
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+  NVD_API_KEY: ${NVD_API_KEY:-}
+  OSV_ONLINE_LOOKUP: ${OSV_ONLINE_LOOKUP:-false}
+
 services:
   db:
-    # Official pgvector image: PostgreSQL 16 with pgvector 0.8.0 installed.
-    # The extension is enabled per database with CREATE EXTENSION (see README).
+    # Official pgvector image: PostgreSQL 16 with pgvector 0.8.0.
     image: pgvector/pgvector:0.8.0-pg16
     restart: unless-stopped
     environment:
@@ -29,25 +48,49 @@ services:
       retries: 10
       start_period: 10s
 
-  api:
+  # One-shot: applies Alembic migrations (creates the vector extension on first run).
+  migrate:
     build:
       context: ./backend
-    restart: unless-stopped
+    image: cti-backend:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *api-environment
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      APP_NAME: ${APP_NAME:-Cyber Threat Intelligence API}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FORMAT: ${LOG_FORMAT:-json}
-      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
-      # Inside the Compose network the database host is the service name "db".
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cti}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cti}
+    restart: "no"
+
+  api:
+    image: cti-backend:local
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *api-environment
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
 
+  ollama:
+    profiles: ["llm"]
+    # Pinned for reproducibility; update to a current stable tag from
+    # https://hub.docker.com/r/ollama/ollama/tags when you deploy.
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:-0.5.7}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+  web:
+    profiles: ["web"]
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    # Build first: (cd frontend/flutter_app && flutter build web --release --no-web-resources-cdn)
+    volumes:
+      - ./frontend/flutter_app/build/web:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8090}:80"
+
 volumes:
   pgdata:
+  ollama:
