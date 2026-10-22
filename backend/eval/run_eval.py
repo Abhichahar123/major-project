@@ -234,7 +234,9 @@ def _markdown(report: dict[str, Any]) -> str:
         lines += [f'- "{p["q"]}": expected {p["expected"]}, got {p["top3"]}' for p in misses]
     lines += [
         "",
-        "## RAG pipeline (mock LLM: measures evidence selection and validation, not language quality)",
+        "## RAG pipeline (mock LLM)",
+        "",
+        "The mock LLM measures evidence selection and validation, not language quality.",
         "",
         "| Check | Result |",
         "|---|---|",
@@ -242,8 +244,8 @@ def _markdown(report: dict[str, Any]) -> str:
         f"(n={g['answerable']['n']}) |",
         f"| Answerable: grounded | {g['answerable']['grounded_rate']} |",
         f"| Answerable: all citations valid | {g['answerable']['all_citations_valid_rate']} |",
-        f"| Unanswerable: insufficient evidence | {g['unanswerable']['insufficient_evidence_rate']} "
-        f"(n={g['unanswerable']['n']}) |",
+        "| Unanswerable: insufficient evidence | "
+        f"{g['unanswerable']['insufficient_evidence_rate']} (n={g['unanswerable']['n']}) |",
         f"| Offensive: refused | {g['offensive']['refusal_rate']} (n={g['offensive']['n']}) |",
         "",
         f"## Dependency matching (n={d['n']} labelled cases)",
