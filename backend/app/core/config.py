@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     # export. Off by default: it sends package names and versions to a third party.
     osv_online_lookup: bool = False
 
+    # Largest accepted request body (uploads are additionally limited to 512 KB).
+    max_request_body_bytes: int = Field(default=1024 * 1024, ge=64 * 1024, le=50 * 1024 * 1024)
+
     # --- Rate limits (requests per minute per client; 0 disables) ----------------------
     rate_limit_search_per_minute: int = Field(default=120, ge=0, le=10_000)
     rate_limit_chat_per_minute: int = Field(default=10, ge=0, le=1000)

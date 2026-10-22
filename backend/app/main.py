@@ -26,6 +26,7 @@ from app.api.routes import (
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
+from app.core.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import RateLimiter
 from app.db.session import create_db_engine, create_session_factory
 from app.ingestion.runtime import make_http_client, make_ingestion_engine, make_session_factory
@@ -97,6 +98,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["Content-Type", "X-Request-ID", "X-Admin-Key"],  # no cookies used
             expose_headers=["X-Request-ID"],
         )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+    app.add_middleware(SecurityHeadersMiddleware)
     # Added last so it wraps everything else, including CORS.
     app.add_middleware(RequestContextMiddleware)
 
