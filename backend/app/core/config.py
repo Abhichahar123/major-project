@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -87,6 +87,17 @@ class Settings(BaseSettings):
     # Required for administrative operations such as triggering ingestion jobs.
     admin_api_key: SecretStr | None = None
 
+    # --- Embeddings and LLM ------------------------------------------------------------
+    # hashing: built-in lexical embedder (no download, not semantic; development/tests).
+    # ollama: real embeddings from a local Ollama server, e.g. nomic-embed-text (768-d).
+    # none: keyword search only.
+    embedding_provider: Literal["hashing", "ollama", "none"] = "hashing"
+    embedding_model: str = Field(default="nomic-embed-text", min_length=1, max_length=200)
+    embedding_batch_size: int = Field(default=32, ge=1, le=512)
+    embedding_timeout_seconds: float = Field(default=60.0, ge=1, le=600)
+    # Local inference server; plain http is expected on localhost or the Compose network.
+    ollama_base_url: str = "http://localhost:11434"
+
     # --- Rate limits (requests per minute per client; 0 disables) ----------------------
     rate_limit_search_per_minute: int = Field(default=120, ge=0, le=10_000)
     rate_limit_chat_per_minute: int = Field(default=10, ge=0, le=1000)
@@ -161,6 +172,14 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_source_url(cls, url: str) -> str:
         return _require_https(url).rstrip("/")
+
+    @field_validator("ollama_base_url")
+    @classmethod
+    def _validate_ollama_url(cls, url: str) -> str:
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            raise ValueError("must be an http(s) URL such as http://localhost:11434")
+        return url.rstrip("/")
 
     @field_validator("cors_origins", mode="before")
     @classmethod

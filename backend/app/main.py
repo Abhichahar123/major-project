@@ -13,13 +13,15 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.routes import admin, catalog, health, vulnerabilities
+from app.api.routes import admin, catalog, health, search, vulnerabilities
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.core.rate_limit import RateLimiter
 from app.db.session import create_db_engine, create_session_factory
 from app.ingestion.runtime import make_http_client, make_ingestion_engine, make_session_factory
+from app.retrieval.embedders import build_embedder
+from app.retrieval.health import embedding_probe
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.rate_limiter = RateLimiter()
+    app.state.embedder = build_embedder(settings)
+    app.state.readiness_probes = {"embeddings": lambda: embedding_probe(app)}
 
     register_exception_handlers(app)
 
@@ -85,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_v1.include_router(health.router)
     api_v1.include_router(vulnerabilities.router)
     api_v1.include_router(catalog.router)
+    api_v1.include_router(search.router)
     api_v1.include_router(admin.router)
     app.include_router(api_v1)
 

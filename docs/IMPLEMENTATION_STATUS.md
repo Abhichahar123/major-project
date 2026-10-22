@@ -11,7 +11,7 @@ Branch: `feat/full-platform` (from `main` at `8a27316`). Updated at every milest
 | 3. Database models and migrations | complete | 18 tables, migrations `0001`, `0002`; round trip and drift tested |
 | 4. Data ingestion | complete | KEV, CVE 5, NVD (mocked only), ATT&CK, CAPEC, OSV (PyPI, npm) |
 | 5. Vulnerability APIs and search | complete | search/filters/pagination, CVE detail with provenance, KEV, techniques, sources, jobs, stats, readiness, admin jobs (X-Admin-Key), rate limits |
-| 6. Embeddings and semantic retrieval | pending | |
+| 6. Embeddings and semantic retrieval | complete | chunking, hashing (lexical) + Ollama (semantic, mocked only in sandbox) embedders, IDF keyword ranking, exact/HNSW vector search, weighted RRF, `/api/v1/search` |
 | 7. LLM and RAG | pending | |
 | 8. Threat-intelligence correlation | pending | |
 | 9. Dependency analysis | pending | |
@@ -28,7 +28,8 @@ These were checked in the sandbox used to build the project, not assumed.
 * Blocked by the sandbox egress proxy: `services.nvd.nist.gov`, `www.cisa.gov`,
   `api.osv.dev`, `huggingface.co`, `ollama.com`. Code for these is tested with mocked
   HTTP only.
-* No GPU, so no real LLM or embedding model can run in the sandbox.
+* No GPU, and Ollama/Hugging Face downloads are blocked, so no real LLM or semantic
+  embedding model can run in the sandbox. Their clients are tested with mocked HTTP.
 
 ## Log
 
@@ -38,4 +39,5 @@ These were checked in the sandbox used to build the project, not assumed.
 | Phase 3 models and migrations | `c752999` | yes | 54 passed |
 | Phase 4a ingestion | `2e38ac5` | yes | 105 passed |
 | Phase 4b OSV advisories | `1879297` (+ fix `b1eceb0`) | yes | 113 passed; real runs: PyPI 14,012 and npm 7,489 advisories imported (11,922 and 222,729 MAL- reports skipped); full rerun 100% unchanged. Note: `1879297` was pushed with one stale test failing; `b1eceb0` fixed it |
-| Phase 5 APIs | see git log | yes | 144 passed (unit + integration); manual run against the real seeded database |
+| Phase 5 APIs | `49e6f19` | yes | 144 passed (unit + integration); manual run against the real seeded database |
+| Phase 6 retrieval | see git log | yes | 164 passed; real index: 2,481 documents and 3,311 chunks embedded with hashing-v2 in about 16 s, rerun 100% unchanged. Ollama embeddings not run (no model in sandbox) |

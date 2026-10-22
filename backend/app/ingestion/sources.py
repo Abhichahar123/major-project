@@ -693,6 +693,16 @@ ADAPTERS: dict[str, Callable[[], Adapter]] = {
 }
 
 
+def _embeddings_adapter() -> Adapter:
+    # Imported lazily: the retrieval package depends on this module.
+    from app.retrieval.indexer import EmbeddingsAdapter
+
+    return EmbeddingsAdapter()
+
+
+ADAPTERS["embeddings"] = _embeddings_adapter
+
+
 def get_adapter(code: str) -> Adapter:
     try:
         return ADAPTERS[code]()
