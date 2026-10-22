@@ -98,6 +98,20 @@ class Settings(BaseSettings):
     # Local inference server; plain http is expected on localhost or the Compose network.
     ollama_base_url: str = "http://localhost:11434"
 
+    # ollama (default): local model via Ollama. openai_compatible: a hosted endpoint, used only
+    # when LLM_BASE_URL and LLM_API_KEY are set (evidence is then sent to that provider).
+    # mock: deterministic answers for automated tests. none: evidence-only answers.
+    llm_provider: Literal["ollama", "openai_compatible", "mock", "none"] = "ollama"
+    llm_model: str = Field(default="llama3.1:8b", min_length=1, max_length=200)
+    llm_base_url: str | None = None
+    llm_api_key: SecretStr | None = None
+    llm_timeout_seconds: float = Field(default=90.0, ge=1, le=600)
+    llm_max_tokens: int = Field(default=700, ge=64, le=4096)
+    llm_temperature: float = Field(default=0.1, ge=0.0, le=1.0)
+    rag_top_k: int = Field(default=8, ge=1, le=20)
+    rag_max_context_chars: int = Field(default=12_000, ge=1000, le=100_000)
+    rag_max_answer_chars: int = Field(default=6000, ge=500, le=50_000)
+
     # --- Rate limits (requests per minute per client; 0 disables) ----------------------
     rate_limit_search_per_minute: int = Field(default=120, ge=0, le=10_000)
     rate_limit_chat_per_minute: int = Field(default=10, ge=0, le=1000)
@@ -181,6 +195,16 @@ class Settings(BaseSettings):
             raise ValueError("must be an http(s) URL such as http://localhost:11434")
         return url.rstrip("/")
 
+    @model_validator(mode="after")
+    def _validate_llm(self) -> Self:
+        if self.llm_provider == "openai_compatible":
+            if not self.llm_base_url or not self.llm_api_key:
+                raise ValueError(
+                    "LLM_PROVIDER=openai_compatible requires LLM_BASE_URL and LLM_API_KEY"
+                )
+            _require_https(self.llm_base_url)
+        return self
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors_origins(cls, value: Any) -> Any:
@@ -229,6 +253,8 @@ class Settings(BaseSettings):
                 f"ADMIN_API_KEY must be set to a random value of at least "
                 f"{MIN_ADMIN_KEY_LENGTH} characters in production"
             )
+        if self.llm_provider == "mock":
+            problems.append("LLM_PROVIDER=mock is for tests only and not allowed in production")
         if self.log_level is LogLevel.DEBUG:
             problems.append("LOG_LEVEL must not be DEBUG in production")
         if problems:

@@ -60,6 +60,8 @@ class RetrievedChunk:
     keyword_rank: int | None = None
     vector_rank: int | None = None
     vector_distance: float | None = None
+    # Share of the query's total IDF weight matched by this chunk (keyword list only).
+    keyword_coverage: float | None = None
 
 
 @dataclass
@@ -130,8 +132,11 @@ def _quote_lexeme(lexeme: str) -> str:
 
 def keyword_candidates(
     session: Session, query: str, f: RetrievalFilters, limit: int = CANDIDATES
-) -> list[tuple[DocumentChunk, float]]:
+) -> list[tuple[DocumentChunk, float, float]]:
     """Any-term full-text retrieval ranked by summed IDF of the matched query terms.
+
+    Returns (chunk, score, coverage), where coverage is the share of the query's total
+    IDF weight that the chunk matches (0-1).
 
     Query lexemes (English-stemmed) match as prefixes, so "log4j" also finds "log4j2".
     Ranking by IDF lets rare, specific terms outweigh common ones such as "remote" or
@@ -162,11 +167,14 @@ def keyword_candidates(
         start=literal(0.0),
     )
     score = idf_score + 0.1 * func.ts_rank_cd(DocumentChunk.tsv, any_term)
-    stmt = select(DocumentChunk, score.label("score")).where(DocumentChunk.tsv.op("@@")(any_term))
+    total_idf = sum(idf for _, idf in terms) or 1.0
+    stmt = select(DocumentChunk, score.label("score"), idf_score.label("idf")).where(
+        DocumentChunk.tsv.op("@@")(any_term)
+    )
     rows = session.execute(
         _apply_filters(stmt, f).order_by(score.desc(), DocumentChunk.id).limit(limit)
     ).all()
-    return [(chunk, float(score)) for chunk, score in rows]
+    return [(chunk, float(sc), round(float(idf) / total_idf, 4)) for chunk, sc, idf in rows]
 
 
 def vector_candidates(
@@ -251,7 +259,7 @@ def retrieve(
                     "model; results reflect shared terms only."
                 )
 
-    keyword_hits: list[tuple[DocumentChunk, float]] = []
+    keyword_hits: list[tuple[DocumentChunk, float, float]] = []
     if mode in {"hybrid", "keyword"} or not vector_used:
         keyword_hits = keyword_candidates(session, query, f)
 
@@ -261,7 +269,14 @@ def retrieve(
         VECTOR_WEIGHT_SEMANTIC if embedder and embedder.semantic else VECTOR_WEIGHT_LEXICAL
     )
 
-    def add(chunk: DocumentChunk, rank: int, *, keyword: bool, distance: float | None) -> None:
+    def add(
+        chunk: DocumentChunk,
+        rank: int,
+        *,
+        keyword: bool,
+        distance: float | None,
+        coverage: float | None = None,
+    ) -> None:
         item = fused.get(chunk.id)
         if item is None:
             item = fused[chunk.id] = RetrievedChunk(
@@ -278,12 +293,12 @@ def retrieve(
             )
         item.score += (1.0 if keyword else vector_weight) / (RRF_K + rank)
         if keyword:
-            item.keyword_rank = rank
+            item.keyword_rank, item.keyword_coverage = rank, coverage
         else:
             item.vector_rank, item.vector_distance = rank, round(distance or 0.0, 4)
 
-    for rank, (chunk, _) in enumerate(keyword_hits, start=1):
-        add(chunk, rank, keyword=True, distance=None)
+    for rank, (chunk, _, coverage) in enumerate(keyword_hits, start=1):
+        add(chunk, rank, keyword=True, distance=None, coverage=coverage)
     for rank, (chunk, distance) in enumerate(vector_hits, start=1):
         add(chunk, rank, keyword=False, distance=distance)
 
