@@ -1,0 +1,53 @@
+# Local development stack: PostgreSQL (with pgvector available) and the FastAPI backend.
+#
+#   cp .env.example .env    # then set POSTGRES_PASSWORD
+#   docker compose up -d db               # database only
+#   docker compose up -d --build          # database + API
+#
+# Ports are bound to 127.0.0.1 so neither service is reachable from other machines.
+
+name: cti
+
+services:
+  db:
+    # Official pgvector image: PostgreSQL 16 with pgvector 0.8.0 installed.
+    # The extension is enabled per database with CREATE EXTENSION (see README).
+    image: pgvector/pgvector:0.8.0-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cti}
+      POSTGRES_USER: ${POSTGRES_USER:-cti}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-Cyber Threat Intelligence API}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      # Inside the Compose network the database host is the service name "db".
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cti}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cti}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+
+volumes:
+  pgdata:
