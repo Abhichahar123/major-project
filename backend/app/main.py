@@ -13,7 +13,15 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.routes import admin, catalog, chat, health, search, vulnerabilities
+from app.api.routes import (
+    admin,
+    catalog,
+    chat,
+    correlation,
+    health,
+    search,
+    vulnerabilities,
+)
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
@@ -93,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api_v1 = APIRouter(prefix=settings.api_v1_prefix)
     api_v1.include_router(health.router)
+    api_v1.include_router(correlation.router)  # before vulnerabilities: more specific paths
     api_v1.include_router(vulnerabilities.router)
     api_v1.include_router(catalog.router)
     api_v1.include_router(search.router)
