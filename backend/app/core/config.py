@@ -105,6 +105,8 @@ class Settings(BaseSettings):
     capec_stix_url: str = (
         "https://raw.githubusercontent.com/mitre/cti/master/capec/2.1/stix-capec.json"
     )
+    osv_data_base_url: str = "https://storage.googleapis.com/osv-vulnerabilities"
+    osv_api_url: str = "https://api.osv.dev/v1"
     ingestion_http_timeout_seconds: float = Field(default=30.0, ge=1, le=300)
     ingestion_max_retries: int = Field(default=4, ge=0, le=10)
     ingestion_backoff_base_seconds: float = Field(default=1.0, ge=0, le=60)
@@ -142,7 +144,14 @@ class Settings(BaseSettings):
             _require_https(url)
         return urls
 
-    @field_validator("cve5_base_url", "nvd_api_url", "attack_stix_url", "capec_stix_url")
+    @field_validator(
+        "cve5_base_url",
+        "nvd_api_url",
+        "attack_stix_url",
+        "capec_stix_url",
+        "osv_data_base_url",
+        "osv_api_url",
+    )
     @classmethod
     def _validate_source_url(cls, url: str) -> str:
         return _require_https(url).rstrip("/")
@@ -214,6 +223,8 @@ class Settings(BaseSettings):
             self.nvd_api_url,
             self.attack_stix_url,
             self.capec_stix_url,
+            self.osv_data_base_url,
+            self.osv_api_url,
         ]
         return {(urlsplit(u).hostname or "").lower() for u in urls}
 

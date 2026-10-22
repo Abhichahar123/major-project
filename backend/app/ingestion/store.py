@@ -15,6 +15,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    Advisory,
+    AdvisoryPackage,
     AffectedProduct,
     AttackTechnique,
     CapecAttackMapping,
@@ -31,6 +33,7 @@ from app.db.models import (
 )
 from app.ingestion.normalize import (
     CvssScore,
+    NormalizedAdvisory,
     NormalizedCapec,
     NormalizedKev,
     NormalizedTechnique,
@@ -43,6 +46,7 @@ class Change(StrEnum):
     INSERTED = "inserted"
     UPDATED = "updated"
     UNCHANGED = "unchanged"
+    SKIPPED = "skipped"  # valid record intentionally not stored (e.g. withdrawn)
 
 
 def get_source(session: Session, code: str) -> Source:
@@ -347,3 +351,49 @@ def upsert_capec(session: Session, pattern: NormalizedCapec) -> Change:
     for technique_id in pattern.technique_ids:
         session.add(CapecAttackMapping(capec_id=pattern.capec_id, technique_id=technique_id))
     return Change.UPDATED if exists else Change.INSERTED
+
+
+def upsert_advisory(session: Session, advisory: NormalizedAdvisory) -> Change:
+    exists = session.get(Advisory, advisory.id) is not None
+    values = {
+        "id": advisory.id,
+        "summary": advisory.summary,
+        "details": advisory.details,
+        "aliases": advisory.aliases,
+        "cve_ids": advisory.cve_ids,
+        "severity": advisory.severity,
+        "cvss_vectors": advisory.cvss_vectors,
+        "cwe_ids": advisory.cwe_ids,
+        "references": advisory.references,
+        "published_at": advisory.published_at,
+        "modified_at": advisory.modified_at,
+        "source_url": f"https://osv.dev/vulnerability/{advisory.id}",
+    }
+    stmt = insert(Advisory).values(**values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[Advisory.id],
+        set_={
+            **{k: getattr(stmt.excluded, k) for k in values if k != "id"},
+            "updated_at": func.now(),
+        },
+    )
+    session.execute(stmt)
+    session.execute(delete(AdvisoryPackage).where(AdvisoryPackage.advisory_id == advisory.id))
+    for pkg in advisory.packages:
+        session.add(
+            AdvisoryPackage(
+                advisory_id=advisory.id,
+                ecosystem=pkg.ecosystem,
+                name=pkg.name,
+                normalized_name=pkg.normalized_name,
+                purl=pkg.purl,
+                ranges=pkg.ranges,
+                versions=pkg.versions,
+            )
+        )
+    return Change.UPDATED if exists else Change.INSERTED
+
+
+def delete_advisory(session: Session, advisory_id: str) -> bool:
+    result = session.execute(delete(Advisory).where(Advisory.id == advisory_id))
+    return bool(result.rowcount)  # type: ignore[attr-defined]

@@ -8,8 +8,11 @@ the batch.
 
 from __future__ import annotations
 
+import json
 import logging
+import tempfile
 import time
+import zipfile
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -23,6 +26,7 @@ from app.ingestion.http import SourceError, SourceNotFoundError
 from app.ingestion.jobs import Adapter, JobContext
 from app.ingestion.normalize import (
     CVE_ID_RE,
+    SUPPORTED_ECOSYSTEMS,
     RecordError,
     attack_version,
     content_hash,
@@ -35,12 +39,15 @@ from app.ingestion.normalize import (
     parse_kev_catalog,
     parse_kev_entry,
     parse_nvd,
+    parse_osv,
     stix_objects,
 )
 from app.ingestion.store import (
     Change,
+    delete_advisory,
     record_seen,
     remove_kev_entries_not_in,
+    upsert_advisory,
     upsert_capec,
     upsert_kev,
     upsert_technique,
@@ -512,12 +519,177 @@ class CapecAdapter:
         _write_batches(ctx, patterns, lambda o: str(o.get("id", "?"))[:100], write)
 
 
+# --------------------------------------------------------------------------- OSV
+
+
+class OsvAdapter:
+    """OSV advisories for one ecosystem from the official OSV data exports.
+
+    ``full`` downloads ``<ecosystem>/all.zip``; ``incremental`` reads
+    ``<ecosystem>/modified_id.csv`` and fetches only records modified since the last run
+    (at most ``max_records``; beyond that a full run is required). ``MAL-`` records
+    (malicious-package reports) are skipped: they describe malware, not vulnerabilities
+    in legitimate package versions. Withdrawn advisories are deleted.
+    """
+
+    code = "osv"
+    max_zip_bytes = 400 * 1024 * 1024
+    max_member_bytes = 5 * 1024 * 1024
+    max_total_uncompressed = 4 * 1024 * 1024 * 1024
+    max_members = 1_000_000
+
+    def validate_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        _reject_unknown(params, {"ecosystem", "mode", "max_records"})
+        ecosystem = params.get("ecosystem", "PyPI")
+        if ecosystem not in SUPPORTED_ECOSYSTEMS:
+            raise ParamError(f"ecosystem must be one of {list(SUPPORTED_ECOSYSTEMS)}")
+        mode = params.get("mode", "auto")
+        if mode not in {"auto", "full", "incremental"}:
+            raise ParamError("mode must be auto, full or incremental")
+        return {
+            "ecosystem": ecosystem,
+            "mode": mode,
+            "max_records": _int_param(params, "max_records", 2000, 1, 20_000),
+        }
+
+    def _records_from_zip(self, ctx: JobContext, ecosystem: str) -> Iterator[dict[str, Any]]:
+        url = f"{ctx.settings.osv_data_base_url}/{ecosystem}/all.zip"
+        with tempfile.TemporaryFile() as tmp:
+            size = ctx.http.download(url, tmp, max_bytes=self.max_zip_bytes)
+            ctx.details["download_bytes"] = size
+            try:
+                archive = zipfile.ZipFile(tmp)
+            except zipfile.BadZipFile as exc:
+                raise SourceError("OSV export is not a valid zip file") from exc
+            with archive:
+                members = archive.infolist()
+                if len(members) > self.max_members:
+                    raise SourceError("OSV export has too many members")
+                total = 0
+                for info in members:
+                    name = info.filename
+                    if info.is_dir() or not name.endswith(".json") or "/" in name:
+                        continue
+                    if name.startswith("MAL-"):
+                        ctx.details["skipped_malware_reports"] = (
+                            ctx.details.get("skipped_malware_reports", 0) + 1
+                        )
+                        continue
+                    # Zip-bomb guards: per-member and cumulative uncompressed size.
+                    total += info.file_size
+                    if (
+                        info.file_size > self.max_member_bytes
+                        or total > self.max_total_uncompressed
+                    ):
+                        ctx.fail(name[:100], "fetch", "zip member too large; skipped")
+                        continue
+                    with archive.open(info) as handle:
+                        data = handle.read(self.max_member_bytes + 1)
+                    try:
+                        yield json.loads(data)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        ctx.fail(name[:100], "normalize", "invalid JSON in OSV export")
+
+    def _changed_ids(self, ctx: JobContext, ecosystem: str, since: datetime) -> list[str]:
+        url = f"{ctx.settings.osv_data_base_url}/{ecosystem}/modified_id.csv"
+        body = ctx.http.get_bytes(url, max_bytes=100 * 1024 * 1024).decode("utf-8", "replace")
+        ids: list[str] = []
+        for line in body.splitlines():
+            stamp, _, osv_id = line.partition(",")
+            modified = parse_datetime(stamp.strip())
+            if modified is None or modified <= since:
+                break  # the file is sorted newest first
+            osv_id = osv_id.strip().split("/")[-1]
+            if osv_id and not osv_id.startswith("MAL-"):
+                ids.append(osv_id)
+        return list(dict.fromkeys(ids))
+
+    def run(self, ctx: JobContext) -> None:
+        ecosystem = ctx.params["ecosystem"]
+        marks = dict(ctx.watermark or {})
+        since = parse_datetime(marks.get(ecosystem))
+        mode = ctx.params["mode"]
+        if mode == "auto":
+            mode = "incremental" if since else "full"
+        ctx.details.update({"ecosystem": ecosystem, "mode": mode})
+        started = datetime.now(UTC)
+
+        if mode == "full":
+            records: Iterable[Any] = self._records_from_zip(ctx, ecosystem)
+        else:
+            if since is None:
+                raise ParamError("incremental mode needs a previous full run")
+            ids = self._changed_ids(ctx, ecosystem, since)
+            ctx.details["changed"] = len(ids)
+            if len(ids) > ctx.params["max_records"]:
+                raise SourceError(
+                    f"{len(ids)} advisories changed since {since.isoformat()}; "
+                    "run mode=full instead"
+                )
+            base = f"{ctx.settings.osv_data_base_url}/{ecosystem}"
+
+            def fetch(osv_id: str) -> Any:
+                try:
+                    return ctx.http.get_json(
+                        f"{base}/{osv_id}.json", max_bytes=self.max_member_bytes
+                    )
+                except SourceError as exc:
+                    return exc
+
+            with ThreadPoolExecutor(max_workers=ctx.settings.ingestion_concurrency) as pool:
+                fetched = list(pool.map(fetch, ids))
+            records = []
+            for osv_id, item in zip(ids, fetched, strict=True):
+                if isinstance(item, Exception):
+                    ctx.fail(osv_id, "fetch", str(item))
+                else:
+                    records.append(item)
+
+        removed = 0
+
+        def counted(items: Iterable[Any]) -> Iterator[Any]:
+            for item in items:
+                ctx.fetched += 1
+                yield item
+
+        def write(session: Session, record: Any) -> Change:
+            nonlocal removed
+            advisory = parse_osv(record)
+            if advisory.withdrawn:
+                if delete_advisory(session, advisory.id):
+                    removed += 1
+                return Change.SKIPPED
+            if not advisory.packages:
+                # Only GIT commit ranges (or other ecosystems): nothing to match versions on.
+                return Change.SKIPPED
+            changed = record_seen(
+                session,
+                source_id=ctx.source_id,
+                record_key=advisory.id,
+                digest=content_hash(record),
+                job_id=ctx.job_id,
+                source_url=f"https://osv.dev/vulnerability/{advisory.id}",
+            )
+            if not changed:
+                return Change.UNCHANGED
+            return upsert_advisory(session, advisory)
+
+        def key(record: Any) -> str:
+            return str((record or {}).get("id", "?"))[:100] if isinstance(record, dict) else "?"
+
+        _write_batches(ctx, counted(records), key, write)
+        ctx.details["withdrawn_removed"] = removed
+        marks[ecosystem] = started.isoformat()
+        ctx.new_watermark = marks
+
+
 ADAPTERS: dict[str, Callable[[], Adapter]] = {
     "kev": KevAdapter,
     "cve5": Cve5Adapter,
     "nvd": NvdAdapter,
     "attack": AttackAdapter,
     "capec": CapecAdapter,
+    "osv": OsvAdapter,
 }
 
 

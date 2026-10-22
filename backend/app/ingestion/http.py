@@ -16,7 +16,7 @@ import logging
 import random
 import time
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from typing import IO, Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -143,6 +143,41 @@ class SourceHttpClient:
                     },
                 )
                 self._sleep(delay)
+        raise SourceError(f"giving up after {self.max_retries + 1} attempts: {last_error}")
+
+    def download(self, url: str, destination: IO[bytes], *, max_bytes: int | None = None) -> int:
+        """Stream a large file to ``destination`` (retrying from scratch on failure)."""
+        self._check_url(url)
+        limit = max_bytes or self.max_response_bytes
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            retry_after: str | None = None
+            destination.seek(0)
+            destination.truncate()
+            try:
+                with self._client.stream("GET", url) as resp:
+                    if resp.status_code == 404:
+                        raise SourceNotFoundError(f"not found: {urlsplit(url).path}")
+                    if resp.status_code in RETRYABLE_STATUS:
+                        retry_after = resp.headers.get("Retry-After")
+                        last_error = SourceError(f"HTTP {resp.status_code} from {resp.url.host}")
+                    elif resp.status_code >= 300:
+                        raise SourceError(f"HTTP {resp.status_code} from {resp.url.host}")
+                    else:
+                        size = 0
+                        for chunk in resp.iter_bytes():
+                            size += len(chunk)
+                            if size > limit:
+                                raise ResponseTooLargeError(f"download exceeds {limit} bytes")
+                            destination.write(chunk)
+                        destination.flush()
+                        return size
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_error = SourceError(
+                    f"{type(exc).__name__} contacting {urlsplit(url).hostname}"
+                )
+            if attempt < self.max_retries:
+                self._sleep(self._delay(attempt, retry_after))
         raise SourceError(f"giving up after {self.max_retries + 1} attempts: {last_error}")
 
     def get_json(

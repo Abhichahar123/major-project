@@ -29,7 +29,16 @@ from app.ingestion.sources import ParamError, get_adapter
 
 def _params(args: argparse.Namespace) -> dict[str, Any]:
     params: dict[str, Any] = {}
-    for name in ("mode", "ids", "limit", "modified_since", "max_new", "since_hours"):
+    for name in (
+        "mode",
+        "ids",
+        "limit",
+        "modified_since",
+        "max_new",
+        "since_hours",
+        "ecosystem",
+        "max_records",
+    ):
         value = getattr(args, name, None)
         if value is not None:
             params[name] = value
@@ -56,7 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sync = sub.add_parser("sync", help="run one source")
-    sync.add_argument("source", choices=["kev", "cve5", "nvd", "attack", "capec", "embeddings"])
+    sync.add_argument(
+        "source", choices=["kev", "cve5", "nvd", "attack", "capec", "osv", "embeddings"]
+    )
     sync.add_argument("--mode")
     sync.add_argument("--ids", nargs="+")
     sync.add_argument("--limit", type=int)
@@ -65,11 +76,17 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument("--max-new", dest="max_new", type=int)
     sync.add_argument("--since-hours", dest="since_hours", type=int)
     sync.add_argument("--all-cves", action="store_true", help="nvd: also store untracked CVEs")
+    sync.add_argument("--ecosystem", choices=["PyPI", "npm"], help="osv: ecosystem export")
+    sync.add_argument("--max-records", dest="max_records", type=int)
 
     seed = sub.add_parser("seed", help="load the bounded demo dataset")
     seed.add_argument("--kev-limit", type=int, default=DEFAULT_KEV_CVE_LIMIT)
     seed.add_argument("--skip-attack", action="store_true")
     seed.add_argument("--skip-embeddings", action="store_true")
+    seed.add_argument("--skip-osv", action="store_true", help="skip the PyPI OSV export (~37 MB)")
+    seed.add_argument(
+        "--with-npm", action="store_true", help="also load the npm OSV export (~220 MB)"
+    )
 
     jobs = sub.add_parser("jobs", help="list recent jobs")
     jobs.add_argument("--limit", type=int, default=20)
@@ -111,6 +128,10 @@ def main(argv: list[str] | None = None) -> int:
             ok &= run("attack", {})
         ok &= run("cve5", {"mode": "from_kev", "limit": args.kev_limit})
         ok &= run("cve5", {"mode": "ids", "ids": PACKAGE_DEMO_CVES})
+        if not args.skip_osv:
+            ok &= run("osv", {"ecosystem": "PyPI"})
+            if args.with_npm:
+                ok &= run("osv", {"ecosystem": "npm"})
         if not args.skip_embeddings and "embeddings" in _available_sources():
             ok &= run("embeddings", {})
         return 0 if ok else 1

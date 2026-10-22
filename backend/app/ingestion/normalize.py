@@ -710,3 +710,146 @@ def parse_capec_pattern(obj: dict[str, Any]) -> NormalizedCapec:
         technique_ids=sorted(techniques),
         raw=obj,
     )
+
+
+# --------------------------------------------------------------------------- OSV
+
+SUPPORTED_ECOSYSTEMS = ("PyPI", "npm")
+_PEP503 = re.compile(r"[-_.]+")
+
+
+def normalize_package_name(ecosystem: str, name: str) -> str:
+    """Canonical lookup key: PEP 503 for PyPI, lower-case for npm (names are case-folded)."""
+    name = name.strip()
+    if ecosystem == "PyPI":
+        return _PEP503.sub("-", name).lower()
+    return name.lower()
+
+
+@dataclass
+class AdvisoryPackageEntry:
+    ecosystem: str
+    name: str
+    normalized_name: str
+    purl: str | None
+    ranges: list[dict[str, Any]]
+    versions: list[str]
+
+
+@dataclass
+class NormalizedAdvisory:
+    id: str
+    summary: str | None
+    details: str | None
+    aliases: list[str]
+    cve_ids: list[str]
+    severity: str | None
+    cvss_vectors: list[str]
+    cwe_ids: list[str]
+    references: list[dict[str, str]]
+    published_at: datetime | None
+    modified_at: datetime | None
+    withdrawn: bool
+    packages: list[AdvisoryPackageEntry]
+
+
+_OSV_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{2,99}$")
+
+
+def parse_osv(
+    record: Any, ecosystems: tuple[str, ...] = SUPPORTED_ECOSYSTEMS
+) -> NormalizedAdvisory:
+    """Normalize an OSV record, keeping only affected packages in ``ecosystems``."""
+    if not isinstance(record, dict):
+        raise RecordError("OSV record is not an object")
+    osv_id = record.get("id")
+    if not isinstance(osv_id, str) or not _OSV_ID_RE.match(osv_id):
+        raise RecordError("OSV record has an invalid id")
+    aliases = [a for a in record.get("aliases", []) or [] if isinstance(a, str)][:50]
+    cve_ids = sorted({a.upper() for a in [osv_id, *aliases] if CVE_ID_RE.match(a.upper())})
+    db_specific = record.get("database_specific") or {}
+    severity = db_specific.get("severity") if isinstance(db_specific, dict) else None
+    severity = severity.upper() if isinstance(severity, str) else None
+    if severity == "MODERATE":  # GitHub's name for MEDIUM
+        severity = "MEDIUM"
+    if severity not in SEVERITIES:
+        severity = None
+    vectors = [
+        s["score"][:200]
+        for s in record.get("severity", []) or []
+        if isinstance(s, dict)
+        and isinstance(s.get("score"), str)
+        and str(s.get("type", "")).startswith("CVSS")
+    ][:5]
+    cwe_ids = (
+        sorted(
+            {
+                c
+                for c in (normalize_cwe_id(x) for x in (db_specific or {}).get("cwe_ids", []) or [])
+                if c
+            }
+        )
+        if isinstance(db_specific, dict)
+        else []
+    )
+    references = [
+        {"type": str(r.get("type", ""))[:32], "url": url}
+        for r in record.get("references", []) or []
+        if isinstance(r, dict) and (url := safe_url(r.get("url")))
+    ][:MAX_REFERENCES]
+
+    packages: list[AdvisoryPackageEntry] = []
+    for affected in record.get("affected", []) or []:
+        if not isinstance(affected, dict):
+            continue
+        package = affected.get("package") or {}
+        ecosystem = package.get("ecosystem") if isinstance(package, dict) else None
+        name = clean_text(package.get("name"), MAX_SHORT) if isinstance(package, dict) else None
+        if ecosystem not in ecosystems or not name:
+            continue
+        ranges: list[dict[str, Any]] = []
+        for rng in affected.get("ranges", []) or []:
+            if not isinstance(rng, dict) or rng.get("type") not in {"ECOSYSTEM", "SEMVER"}:
+                continue  # GIT ranges cannot be matched against package versions
+            events = [
+                {
+                    k: str(v)[:100]
+                    for k, v in e.items()
+                    if k in {"introduced", "fixed", "last_affected", "limit"}
+                }
+                for e in rng.get("events", []) or []
+                if isinstance(e, dict)
+            ]
+            events = [e for e in events if e]
+            if events:
+                ranges.append({"type": rng["type"], "events": events[:200]})
+        versions = [str(v)[:100] for v in affected.get("versions", []) or [] if isinstance(v, str)][
+            :2000
+        ]
+        if not ranges and not versions:
+            continue
+        packages.append(
+            AdvisoryPackageEntry(
+                ecosystem=ecosystem,
+                name=name,
+                normalized_name=normalize_package_name(ecosystem, name),
+                purl=clean_text(package.get("purl"), 500),
+                ranges=ranges,
+                versions=versions,
+            )
+        )
+    return NormalizedAdvisory(
+        id=osv_id,
+        summary=clean_text(record.get("summary"), 1000),
+        details=clean_text(record.get("details")),
+        aliases=aliases,
+        cve_ids=cve_ids,
+        severity=severity,
+        cvss_vectors=vectors,
+        cwe_ids=cwe_ids,
+        references=references,
+        published_at=parse_datetime(record.get("published")),
+        modified_at=parse_datetime(record.get("modified")),
+        withdrawn=bool(record.get("withdrawn")),
+        packages=packages,
+    )

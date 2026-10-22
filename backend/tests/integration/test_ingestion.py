@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
+import zipfile
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
 from app.db.models import (
+    Advisory,
     AttackTechnique,
     CapecAttackMapping,
     CvssMetric,
@@ -34,6 +37,7 @@ from app.ingestion.sources import (
     Cve5Adapter,
     KevAdapter,
     NvdAdapter,
+    OsvAdapter,
     ParamError,
 )
 from tests.conftest import make_settings
@@ -348,3 +352,116 @@ def test_attack_and_capec_ingestion(run, db: Session) -> None:  # type: ignore[n
         )
     )
     assert mapping is not None
+
+
+# --------------------------------------------------------------------------- OSV
+
+OSV_BASE = "https://osv.test/osv-vulnerabilities"
+
+
+def osv_zip(records: dict[str, Any], extra: dict[str, bytes] | None = None) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, record in records.items():
+            archive.writestr(f"{name}.json", json.dumps(record))
+        for name, raw in (extra or {}).items():
+            archive.writestr(name, raw)
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def osv_settings(settings: Settings) -> Settings:
+    return settings.model_copy(update={"osv_data_base_url": OSV_BASE})
+
+
+@pytest.fixture
+def osv_run(osv_settings: Settings, session_factory, upstream: FakeUpstream):  # type: ignore[no-untyped-def]
+    def http_factory() -> SourceHttpClient:
+        return SourceHttpClient(
+            allowed_hosts=osv_settings.ingestion_allowed_hosts,
+            transport=httpx.MockTransport(upstream.handler),
+            max_retries=0,
+            sleep=lambda s: None,
+        )
+
+    def _run(params: dict[str, Any]) -> IngestionJob:
+        return run_now(OsvAdapter(), params, osv_settings, session_factory, http_factory)
+
+    return _run
+
+
+def osv_records() -> dict[str, Any]:
+    flask = fixture("osv_GHSA-m2qf-hxjv-5gpq.json")
+    return {
+        flask["id"]: flask,
+        "MAL-2024-0001": {"id": "MAL-2024-0001", "affected": []},
+        "PYSEC-2099-1": {"id": "PYSEC-2099-1", "withdrawn": "2099-01-01T00:00:00Z", "affected": []},
+        "PYSEC-2099-2": {
+            "id": "PYSEC-2099-2",
+            "affected": [
+                {
+                    "package": {"ecosystem": "PyPI", "name": "gitonly"},
+                    "ranges": [{"type": "GIT", "events": [{"introduced": "abc"}]}],
+                }
+            ],
+        },
+    }
+
+
+def test_osv_full_import_and_rerun(osv_run, upstream: FakeUpstream, db: Session) -> None:  # type: ignore[no-untyped-def]
+    payload = osv_zip(osv_records())
+    upstream.routes[f"{OSV_BASE}/PyPI/all.zip"] = lambda r: httpx.Response(200, content=payload)
+
+    first = osv_run({"ecosystem": "PyPI"})
+    second = osv_run({"ecosystem": "PyPI", "mode": "full"})
+
+    assert (first.status, first.records_inserted, first.records_failed) == ("succeeded", 1, 0)
+    assert first.details["skipped_malware_reports"] == 1
+    assert first.details["skipped"] == 2  # withdrawn + GIT-only
+    assert second.records_unchanged == 1
+    advisory = db.get(Advisory, "GHSA-m2qf-hxjv-5gpq")
+    assert advisory is not None and advisory.cve_ids == ["CVE-2023-30861"]
+    source = db.scalar(select(Source).where(Source.code == "osv"))
+    assert source is not None and "PyPI" in (source.watermark or {})
+
+
+def test_osv_incremental_fetches_changed_records(
+    osv_run, upstream: FakeUpstream, db: Session
+) -> None:  # type: ignore[no-untyped-def]
+    upstream.routes[f"{OSV_BASE}/PyPI/all.zip"] = lambda r: httpx.Response(200, content=osv_zip({}))
+    osv_run({"ecosystem": "PyPI"})  # establishes the watermark
+    flask = fixture("osv_GHSA-m2qf-hxjv-5gpq.json")
+    csv = f"2999-01-01T00:00:00Z,{flask['id']}\n2999-01-01T00:00:00Z,MAL-2024-9\n2000-01-01T00:00:00Z,OLD-1\n"
+    upstream.routes[f"{OSV_BASE}/PyPI/modified_id.csv"] = lambda r: httpx.Response(200, text=csv)
+    upstream.set_json(f"{OSV_BASE}/PyPI/{flask['id']}.json", flask)
+
+    job = osv_run({"ecosystem": "PyPI"})
+
+    assert job.details["mode"] == "incremental" and job.details["changed"] == 1
+    assert job.records_inserted == 1
+    assert db.get(Advisory, flask["id"]) is not None
+
+
+def test_osv_incremental_refuses_too_many_changes(osv_run, upstream: FakeUpstream) -> None:  # type: ignore[no-untyped-def]
+    upstream.routes[f"{OSV_BASE}/PyPI/all.zip"] = lambda r: httpx.Response(200, content=osv_zip({}))
+    osv_run({"ecosystem": "PyPI"})
+    csv = "".join(f"2999-01-01T00:00:00Z,GHSA-{i:04d}\n" for i in range(5))
+    upstream.routes[f"{OSV_BASE}/PyPI/modified_id.csv"] = lambda r: httpx.Response(200, text=csv)
+
+    job = osv_run({"ecosystem": "PyPI", "max_records": 2})
+
+    assert job.status == "failed" and "run mode=full" in (job.error_summary or "")
+
+
+def test_osv_rejects_invalid_zip_members(osv_run, upstream: FakeUpstream) -> None:  # type: ignore[no-untyped-def]
+    payload = osv_zip({}, extra={"GHSA-bad.json": b"{not json", "nested/GHSA-x.json": b"{}"})
+    upstream.routes[f"{OSV_BASE}/PyPI/all.zip"] = lambda r: httpx.Response(200, content=payload)
+
+    job = osv_run({"ecosystem": "PyPI"})
+
+    assert job.status == "failed" and job.records_failed == 1  # nested path ignored
+
+
+def test_osv_rejects_unknown_ecosystem() -> None:
+    with pytest.raises(ParamError):
+        OsvAdapter().validate_params({"ecosystem": "Hackage"})

@@ -478,3 +478,52 @@ class ChunkEmbedding(Base):
     )
 
     chunk: Mapped[DocumentChunk] = relationship(back_populates="embeddings")
+
+
+# ------------------------------------------------------------------ OSV advisories
+
+
+class Advisory(TimestampMixin, Base):
+    """An OSV advisory (GHSA, PYSEC, ...) with ecosystem-exact affected packages."""
+
+    __tablename__ = "advisories"
+    __table_args__ = (
+        Index("ix_advisories_cve_ids", "cve_ids", postgresql_using="gin"),
+        Index("ix_advisories_aliases", "aliases", postgresql_using="gin"),
+    )
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    summary: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[str | None] = mapped_column(Text)
+    aliases: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    cve_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    severity: Mapped[str | None] = mapped_column(String(16))
+    cvss_vectors: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    cwe_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_url: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    packages: Mapped[list[AdvisoryPackage]] = relationship(
+        back_populates="advisory", cascade="all, delete-orphan"
+    )
+
+
+class AdvisoryPackage(Base):
+    __tablename__ = "advisory_packages"
+    __table_args__ = (Index("ix_advisory_packages_lookup", "ecosystem", "normalized_name"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    advisory_id: Mapped[str] = mapped_column(
+        ForeignKey("advisories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ecosystem: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    purl: Mapped[str | None] = mapped_column(String(500))
+    # OSV "ranges" (type + introduced/fixed/last_affected events) and explicit versions.
+    ranges: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    versions: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+    advisory: Mapped[Advisory] = relationship(back_populates="packages")

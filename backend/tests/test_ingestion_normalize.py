@@ -18,12 +18,14 @@ from app.ingestion.normalize import (
     RecordError,
     content_hash,
     cve5_record_path,
+    normalize_package_name,
     parse_attack_technique,
     parse_capec_pattern,
     parse_cve5,
     parse_kev_catalog,
     parse_kev_entry,
     parse_nvd,
+    parse_osv,
     safe_url,
     select_display_cvss,
     severity_from_score,
@@ -225,3 +227,65 @@ def test_safe_url() -> None:
     assert safe_url("https://example.org/x") == "https://example.org/x"
     assert safe_url("javascript:alert(1)") is None
     assert safe_url("https://" + "a" * 3000) is None
+
+
+# --------------------------------------------------------------------------- OSV
+
+
+def test_osv_advisory_is_normalized() -> None:
+    adv = parse_osv(load("osv_GHSA-m2qf-hxjv-5gpq.json"))
+
+    assert adv.id == "GHSA-m2qf-hxjv-5gpq"
+    assert adv.cve_ids == ["CVE-2023-30861"]
+    assert adv.severity == "HIGH" and adv.cwe_ids == ["CWE-539"]
+    assert {p.normalized_name for p in adv.packages} == {"flask"}
+    events = [e for p in adv.packages for r in p.ranges for e in r["events"]]
+    assert {"fixed": "2.2.5"} in events and {"introduced": "2.3.0"} in events
+
+
+def test_osv_filters_ranges_and_ecosystems() -> None:
+    record = {
+        "id": "GHSA-test-test-test",
+        "aliases": ["CVE-2024-0001"],
+        "database_specific": {"severity": "MODERATE"},
+        "affected": [
+            {
+                "package": {"ecosystem": "PyPI", "name": "Some_Package.Name"},
+                "ranges": [
+                    {"type": "GIT", "repo": "https://x", "events": [{"introduced": "abc"}]},
+                    {"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.2"}]},
+                ],
+            },
+            {
+                "package": {"ecosystem": "Go", "name": "example.org/mod"},
+                "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}],
+            },
+            {
+                "package": {"ecosystem": "npm", "name": "only-git"},
+                "ranges": [{"type": "GIT", "events": [{"introduced": "abc"}]}],
+            },
+        ],
+    }
+    adv = parse_osv(record)
+
+    assert adv.severity == "MEDIUM"
+    [pkg] = adv.packages
+    assert pkg.normalized_name == "some-package-name"
+    assert [r["type"] for r in pkg.ranges] == ["ECOSYSTEM"]
+
+
+@pytest.mark.parametrize(
+    ("ecosystem", "name", "expected"),
+    [
+        ("PyPI", "Django_REST.framework", "django-rest-framework"),
+        ("npm", "Lodash", "lodash"),
+        ("npm", "@Babel/Core", "@babel/core"),
+    ],
+)
+def test_normalize_package_name(ecosystem: str, name: str, expected: str) -> None:
+    assert normalize_package_name(ecosystem, name) == expected
+
+
+def test_osv_invalid_id_raises() -> None:
+    with pytest.raises(RecordError):
+        parse_osv({"id": "../../etc/passwd"})

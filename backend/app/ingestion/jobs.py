@@ -57,6 +57,7 @@ class JobContext:
     updated: int = 0
     unchanged: int = 0
     failed: int = 0
+    skipped: int = 0
     errors: list[tuple[str | None, str, str]] = field(default_factory=list)
 
     def count(self, change: Change) -> None:
@@ -64,6 +65,8 @@ class JobContext:
             self.inserted += 1
         elif change is Change.UPDATED:
             self.updated += 1
+        elif change is Change.SKIPPED:
+            self.skipped += 1
         else:
             self.unchanged += 1
 
@@ -192,6 +195,8 @@ def execute_job(
         job.records_unchanged = ctx.unchanged
         job.records_failed = ctx.failed
         job.error_summary = summary
+        if ctx.skipped:
+            ctx.details["skipped"] = ctx.skipped
         job.details = ctx.details or None
         for record_key, stage, message in ctx.errors:
             session.add(
