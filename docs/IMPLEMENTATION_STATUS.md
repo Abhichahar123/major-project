@@ -32,7 +32,7 @@ milestone. Every item marked complete was verified as described in the log below
 | Docker Compose: build, `migrate` (exit 0), API healthy, host seed into the Compose DB, API checks | Passed (sandbox build needed the proxy CA, see below) |
 | `pip-audit` of `backend/constraints.txt` | No known vulnerabilities |
 | Evaluation (`backend/eval/run_eval.py`) | See `docs/evaluation.md` |
-| GitHub Actions CI | Workflow added in the Phase 12 commit; see the run on GitHub |
+| GitHub Actions CI (run 39836335918 on `56eb43e`) | Passed: backend (ruff, format, mypy, pytest vs pgvector 0.8.0) and frontend (format, analyze, test, web build) |
 
 ## What was not verified, and why
 
@@ -45,7 +45,7 @@ milestone. Every item marked complete was verified as described in the log below
 * **Android build.** No Android SDK in the sandbox. The web build was verified.
 * **Docker image build without the sandbox workaround.** The sandbox's TLS-intercepting
   proxy required a scratch Dockerfile variant that adds the proxy CA. The repository's
-  Dockerfile is unchanged.
+  Dockerfile is unchanged; it has not been built outside the sandbox (CI does not build images).
 
 ## Environment facts (development sandbox)
 
