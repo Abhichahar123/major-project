@@ -1,8 +1,9 @@
 """The ``embeddings`` job: rebuild document chunks, then embed what is missing.
 
 Embeddings are keyed by (chunk, model) and store the chunk's content hash, so re-running
-the job only embeds new or changed chunks for the configured model. Switching models
-keeps the old model's vectors (they can be deleted with ``reembed``/``prune``).
+the job only embeds new or changed chunks for the configured model. With ``prune`` (the
+default), other models' vectors are deleted only after every chunk has been embedded with
+the configured model, so a failed or rate-limited run never leaves search without vectors.
 """
 
 from __future__ import annotations
@@ -80,7 +81,11 @@ class EmbeddingsAdapter:
             }
         )
         if embedder is None:
-            ctx.details["embedding"] = "disabled (EMBEDDING_PROVIDER=none)"
+            ctx.details["embedding"] = (
+                ctx.settings.gemini_problem("embedding")
+                if ctx.settings.embedding_provider == "gemini"
+                else None
+            ) or f"disabled (EMBEDDING_PROVIDER={ctx.settings.embedding_provider})"
             return
         ctx.details.update(
             {
@@ -94,8 +99,6 @@ class EmbeddingsAdapter:
             model_id = get_or_create_model(session, embedder)
             if ctx.params["reembed"]:
                 session.execute(delete(ChunkEmbedding).where(ChunkEmbedding.model_id == model_id))
-            if ctx.params["prune"]:
-                session.execute(delete(ChunkEmbedding).where(ChunkEmbedding.model_id != model_id))
             todo = session.execute(
                 select(
                     DocumentChunk.id,
@@ -121,6 +124,7 @@ class EmbeddingsAdapter:
                 pending.append((chunk_id, content, digest, embedded_digest is not None))
 
         batch_size = ctx.settings.embedding_batch_size
+        complete = True
         for start in range(0, len(pending), batch_size):
             batch = pending[start : start + batch_size]
             try:
@@ -131,6 +135,7 @@ class EmbeddingsAdapter:
                 # The backend is down: stop instead of failing every remaining batch.
                 remaining = len(pending) - start - len(batch)
                 ctx.details["not_attempted"] = remaining
+                complete = False
                 break
             with ctx.session_factory.begin() as session:
                 for (chunk_id, _, digest, existed), vector in zip(batch, vectors, strict=True):
@@ -153,3 +158,12 @@ class EmbeddingsAdapter:
                     else:
                         ctx.inserted += 1
             ctx.flush_progress()
+
+        if ctx.params["prune"]:
+            if complete:
+                with ctx.session_factory.begin() as session:
+                    session.execute(
+                        delete(ChunkEmbedding).where(ChunkEmbedding.model_id != model_id)
+                    )
+            else:
+                ctx.details["prune"] = "skipped: not every chunk was embedded"

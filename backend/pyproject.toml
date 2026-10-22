@@ -20,6 +20,8 @@ dependencies = [
     "httpx>=0.28,<1.0",
     "packaging>=26.0",
     "python-multipart>=0.0.32",
+    # Official Google Gen AI SDK, used only when a Gemini provider is selected.
+    "google-genai>=2.29,<3.0",
 ]
 
 [project.optional-dependencies]

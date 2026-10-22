@@ -116,6 +116,18 @@ def test_switching_model_prunes_old_vectors(
     assert dict(models)["hashing-other"] > 0 and dict(models)["hashing-v2"] == 0
 
 
+def test_failed_switch_keeps_the_previous_models_vectors(
+    settings: Any, session_factory: Any, seeded: Any, db: Session
+) -> None:
+    embed(settings, session_factory, seeded)
+    before = db.scalar(select(func.count()).select_from(ChunkEmbedding))
+
+    job = embed(settings, session_factory, seeded, BrokenEmbedder())  # e.g. a quota error
+    assert job.status == "failed"
+    assert job.details["prune"] == "skipped: not every chunk was embedded"
+    assert db.scalar(select(func.count()).select_from(ChunkEmbedding)) == before
+
+
 def test_unavailable_embedder_fails_job_but_keeps_chunks(
     settings: Any, session_factory: Any, seeded: Any, db: Session
 ) -> None:

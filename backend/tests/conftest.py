@@ -32,7 +32,19 @@ UNREACHABLE_DB_URL = "postgresql+psycopg://test_user:test-password@127.0.0.1:1/t
 def _isolate_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Keep a developer's .env file and real environment out of unit tests."""
     monkeypatch.chdir(os.path.dirname(__file__))  # no .env in tests/
-    for name in ("ADMIN_API_KEY", "CORS_ORIGINS", "LOG_LEVEL", "LOG_FORMAT", "API_V1_PREFIX"):
+    for name in (
+        "ADMIN_API_KEY",
+        "CORS_ORIGINS",
+        "LOG_LEVEL",
+        "LOG_FORMAT",
+        "API_V1_PREFIX",
+        # A developer's real Gemini key must never reach a test (or a mocked request).
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_MODEL",
+        "GEMINI_EMBEDDING_MODEL",
+        "GEMINI_THINKING_BUDGET",
+    ):
         monkeypatch.delenv(name, raising=False)
     get_settings.cache_clear()
     yield

@@ -7,6 +7,7 @@ masked in ``repr()`` output and never end up in logs by accident.
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Any, Literal, Self
@@ -50,6 +51,18 @@ class LogFormat(StrEnum):
     TEXT = "text"
 
 
+# Gemini model codes such as "gemini-2.5-flash" or "models/gemini-embedding-001". The
+# pattern keeps configuration values from changing the request path.
+_GEMINI_MODEL_CODE = re.compile(r"^(?:models/)?[a-z0-9][a-z0-9.\-]{0,99}$")
+
+
+def model_code_problem(model: str) -> str | None:
+    """Return why a configured Gemini model code is unusable, or None if it looks valid."""
+    if not _GEMINI_MODEL_CODE.fullmatch(model):
+        return "must be a Gemini model code, as listed by `python -m app.llm.gemini_models`"
+    return None
+
+
 def _require_https(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
@@ -90,8 +103,10 @@ class Settings(BaseSettings):
     # --- Embeddings and LLM ------------------------------------------------------------
     # hashing: built-in lexical embedder (no download, not semantic; development/tests).
     # ollama: real embeddings from a local Ollama server, e.g. nomic-embed-text (768-d).
+    # gemini: Google's hosted embedding API (GEMINI_API_KEY and GEMINI_EMBEDDING_MODEL;
+    # vectors are requested at 768 dimensions to fit the existing column).
     # none: keyword search only.
-    embedding_provider: Literal["hashing", "ollama", "none"] = "hashing"
+    embedding_provider: Literal["hashing", "ollama", "gemini", "none"] = "hashing"
     embedding_model: str = Field(default="nomic-embed-text", min_length=1, max_length=200)
     embedding_batch_size: int = Field(default=32, ge=1, le=512)
     embedding_timeout_seconds: float = Field(default=60.0, ge=1, le=600)
@@ -100,14 +115,27 @@ class Settings(BaseSettings):
 
     # ollama (default): local model via Ollama. openai_compatible: a hosted endpoint, used only
     # when LLM_BASE_URL and LLM_API_KEY are set (evidence is then sent to that provider).
-    # mock: deterministic answers for automated tests. none: evidence-only answers.
-    llm_provider: Literal["ollama", "openai_compatible", "mock", "none"] = "ollama"
+    # gemini: Google's Gemini API (GEMINI_API_KEY and GEMINI_MODEL; evidence and questions
+    # are sent to Google). mock: deterministic answers for automated tests.
+    # none: evidence-only answers.
+    llm_provider: Literal["ollama", "openai_compatible", "gemini", "mock", "none"] = "ollama"
     llm_model: str = Field(default="llama3.1:8b", min_length=1, max_length=200)
     llm_base_url: str | None = None
     llm_api_key: SecretStr | None = None
     llm_timeout_seconds: float = Field(default=90.0, ge=1, le=600)
     llm_max_tokens: int = Field(default=700, ge=64, le=4096)
     llm_temperature: float = Field(default=0.1, ge=0.0, le=1.0)
+    # Google Gemini (LLM_PROVIDER=gemini and/or EMBEDDING_PROVIDER=gemini). There are no
+    # default model codes: Google renames and retires models, so set them explicitly after
+    # checking `python -m app.llm.gemini_models` or the official model list. A missing key
+    # or model disables the Gemini component (reported by /health/ready) instead of
+    # stopping the application.
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str | None = Field(default=None, max_length=200)
+    gemini_embedding_model: str | None = Field(default=None, max_length=200)
+    # Thinking-token budget for models that support it (0 turns thinking off where the
+    # model allows it); unset keeps the model's default.
+    gemini_thinking_budget: int | None = Field(default=None, ge=0, le=24_576)
     rag_top_k: int = Field(default=8, ge=1, le=20)
     rag_max_context_chars: int = Field(default=12_000, ge=1000, le=100_000)
     rag_max_answer_chars: int = Field(default=6000, ge=500, le=50_000)
@@ -211,6 +239,35 @@ class Settings(BaseSettings):
                 )
             _require_https(self.llm_base_url)
         return self
+
+    @field_validator("gemini_api_key", mode="before")
+    @classmethod
+    def _blank_key_is_unset(cls, value: Any) -> Any:
+        # GEMINI_API_KEY= (empty, as in .env.example) means "not configured".
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("gemini_model", "gemini_embedding_model", mode="before")
+    @classmethod
+    def _validate_gemini_model(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip() or None
+        if isinstance(value, str) and (problem := model_code_problem(value)):
+            raise ValueError(problem)
+        return value
+
+    def gemini_problem(self, component: Literal["llm", "embedding"]) -> str | None:
+        """Why the Gemini LLM or embedder cannot be used, or None when it is configured.
+
+        Names the missing variables, never their values.
+        """
+        model = self.gemini_model if component == "llm" else self.gemini_embedding_model
+        model_var = "GEMINI_MODEL" if component == "llm" else "GEMINI_EMBEDDING_MODEL"
+        missing = [
+            name
+            for name, present in (("GEMINI_API_KEY", self.gemini_api_key), (model_var, model))
+            if not present
+        ]
+        return f"Gemini is selected but {' and '.join(missing)} not set" if missing else None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

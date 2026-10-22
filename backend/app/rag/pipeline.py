@@ -282,7 +282,10 @@ def answer_question(
     if llm is None:
         result.mode = "evidence_only"
         result.answer = _evidence_only_answer(used_blocks)
-        result.warnings.append("No language model is configured (LLM_PROVIDER=none).")
+        result.warnings.append(
+            (settings.gemini_problem("llm") if settings.llm_provider == "gemini" else None)
+            or f"No language model is configured (LLM_PROVIDER={settings.llm_provider})."
+        )
         cited_ids = [b.evidence_id for b in used_blocks[:6]]
     else:
         try:

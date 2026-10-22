@@ -39,7 +39,8 @@ _KEY_VALUE_SECRET = re.compile(
 )
 # Authorization: Bearer abc / X-Admin-Key: abc
 _AUTH_HEADER = re.compile(
-    r"(?P<key>\b(?:authorization|proxy-authorization|x-admin-key|x-api-key)\b[\"']?\s*[:=]\s*"
+    r"(?P<key>\b(?:authorization|proxy-authorization|x-admin-key|x-api-key|x-goog-api-key)\b"
+    r"[\"']?\s*[:=]\s*"
     r"[\"']?)(?P<value>(?:bearer\s+|basic\s+)?[^\s\"',;]+)",
     re.IGNORECASE,
 )
@@ -51,6 +52,10 @@ _STANDARD_ATTRS = frozenset(
     | {"message", "asctime", "color_message"}
 )
 
+# Google API keys (e.g. GEMINI_API_KEY) have a fixed shape, and may appear as ?key=...
+_GOOGLE_API_KEY = re.compile(r"AIza[0-9A-Za-z_\-]{35}")
+_URL_KEY_PARAM = re.compile(r"(?P<key>[?&]key=)(?P<value>[^\s&#\"']+)")
+
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
@@ -58,6 +63,8 @@ def redact(text: str) -> str:
     """Mask credentials embedded in free text."""
     text = _URL_CREDENTIALS.sub(rf"\g<prefix>{REDACTED}@", text)
     text = _AUTH_HEADER.sub(rf"\g<key>{REDACTED}", text)
+    text = _GOOGLE_API_KEY.sub(REDACTED, text)
+    text = _URL_KEY_PARAM.sub(rf"\g<key>{REDACTED}", text)
     return _KEY_VALUE_SECRET.sub(rf"\g<key>{REDACTED}", text)
 
 

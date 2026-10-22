@@ -14,7 +14,15 @@ from app.retrieval.indexer import find_model_id
 def embedding_probe(app: Any) -> ReadinessCheck:
     embedder = app.state.embedder
     if embedder is None:
-        return ReadinessCheck(status="degraded", detail="disabled; keyword search only")
+        settings = getattr(app.state, "settings", None)
+        problem = (
+            settings.gemini_problem("embedding")
+            if settings is not None and settings.embedding_provider == "gemini"
+            else None
+        )
+        return ReadinessCheck(
+            status="degraded", detail=f"{problem or 'disabled'}; keyword search only"
+        )
     label = f"{embedder.provider}/{embedder.name}"
     try:
         with app.state.db_session_factory() as session:

@@ -3,22 +3,31 @@
 * ``OllamaProvider``: local inference through Ollama's ``/api/chat`` (primary option).
 * ``OpenAICompatibleProvider``: any ``/chat/completions`` endpoint; only built when
   explicitly configured, because evidence and questions are sent to that third party.
+* ``GeminiProvider``: Google's Gemini API through the official ``google-genai`` SDK; only
+  built when selected and configured, because evidence and questions are sent to Google.
 * ``MockProvider``: deterministic, network-free answers for automated tests.
 
-Providers raise ``LLMUnavailableError`` (not running, model missing, HTTP error) or
-``LLMTimeoutError``; the RAG pipeline turns both into an evidence-only answer.
+Providers raise ``LLMUnavailableError`` (not running, model missing, HTTP error, rate
+limit, blocked answer) or ``LLMTimeoutError``; the RAG pipeline turns both into an
+evidence-only answer, so its refusal, relevance and citation checks always still apply.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 from app.core.config import Settings
+from app.core.gemini import Cooldown, GeminiFailure, classify_error, make_client
+
+logger = logging.getLogger(__name__)
 
 
 class LLMUnavailableError(RuntimeError):
@@ -172,6 +181,112 @@ class OpenAICompatibleProvider:
         )
 
 
+# Finish reasons whose text may be shown. Any other reason (SAFETY, RECITATION,
+# PROHIBITED_CONTENT, ...) means the answer was stopped, so none of it is used.
+_GEMINI_USABLE_FINISH = frozenset({"STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED", ""})
+
+
+class GeminiProvider:
+    provider = "gemini"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        *,
+        timeout_seconds: float,
+        max_tokens: int,
+        temperature: float,
+        thinking_budget: int | None = None,
+        http_client: httpx.Client | None = None,
+        cooldown: Cooldown | None = None,
+    ) -> None:
+        self.model = model.removeprefix("models/")
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.thinking_budget = thinking_budget
+        self._client = make_client(
+            api_key, timeout_seconds=timeout_seconds, http_client=http_client
+        )
+        self.cooldown = cooldown or Cooldown()
+
+    def generate(self, system: str, user: str) -> LLMResult:
+        if (wait := self.cooldown.remaining()) > 0:
+            # Recently rate limited: answer from evidence now rather than wait or retry.
+            raise LLMUnavailableError(
+                f"Gemini rate limit or quota reached; not retrying for about {round(wait)} s"
+            )
+        config = genai_types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=self.max_tokens,
+            temperature=self.temperature,
+            candidate_count=1,
+            # No tools are offered, so the SDK's function-calling loop stays off.
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+            # Safety settings are deliberately left at Google's defaults: never loosened.
+            thinking_config=(
+                genai_types.ThinkingConfig(thinking_budget=self.thinking_budget)
+                if self.thinking_budget is not None
+                else None
+            ),
+        )
+        started = time.perf_counter()
+        try:
+            response = self._client.models.generate_content(
+                model=self.model, contents=user, config=config
+            )
+        except (genai_errors.APIError, httpx.HTTPError) as exc:
+            failure = classify_error(exc, self.model) or GeminiFailure("server", "Gemini API error")
+            self.cooldown.trip(failure)
+            logger.warning(
+                "Gemini generation failed",
+                extra={"failure": failure.kind, "error_type": type(exc).__name__},
+            )
+            if failure.kind == "timeout":
+                raise LLMTimeoutError(failure.message) from exc
+            raise LLMUnavailableError(failure.message) from exc
+        except Exception as exc:  # e.g. a response the SDK cannot parse
+            logger.warning("Gemini call failed", extra={"error_type": type(exc).__name__})
+            raise LLMUnavailableError("Gemini returned an unexpected response") from exc
+        return self._result(response, started)
+
+    def _result(self, response: genai_types.GenerateContentResponse, started: float) -> LLMResult:
+        feedback = response.prompt_feedback
+        if feedback is not None and feedback.block_reason is not None:
+            raise LLMUnavailableError(
+                f"Gemini blocked the request ({_enum_name(feedback.block_reason)})"
+            )
+        if not response.candidates:
+            raise LLMUnavailableError("Gemini returned no answer")
+        candidate = response.candidates[0]
+        finish = _enum_name(candidate.finish_reason)
+        if finish not in _GEMINI_USABLE_FINISH:
+            raise LLMUnavailableError(f"Gemini stopped the answer ({finish})")
+        parts = (candidate.content.parts if candidate.content else None) or []
+        # Thought summaries are never part of the answer.
+        text = "".join(p.text for p in parts if p.text and not p.thought).strip()
+        if not text:
+            if finish == "MAX_TOKENS":
+                raise LLMUnavailableError(
+                    "Gemini used the whole output budget before answering; "
+                    "raise LLM_MAX_TOKENS or lower GEMINI_THINKING_BUDGET"
+                )
+            raise LLMUnavailableError("Gemini returned an empty answer")
+        return LLMResult(
+            text=text,
+            provider=self.provider,
+            model=self.model,
+            latency_ms=round((time.perf_counter() - started) * 1000, 1),
+            truncated=finish == "MAX_TOKENS",
+        )
+
+
+def _enum_name(value: object) -> str:
+    if value is None:
+        return ""
+    return str(getattr(value, "value", value))
+
+
 _EVIDENCE_ID = re.compile(r'<evidence id="(E\d+)"[^>]*\btitle="([^"]*)"')
 
 
@@ -219,6 +334,21 @@ def build_llm(settings: Settings) -> LLMProvider | None:
             timeout_seconds=timeout,
             max_tokens=tokens,
             temperature=temp,
+        )
+    if settings.llm_provider == "gemini":
+        problem = settings.gemini_problem("llm")
+        if problem or settings.gemini_api_key is None or settings.gemini_model is None:
+            # Missing credentials must not stop the API: chat answers from evidence and
+            # /health/ready reports why.
+            logger.warning("%s; chat will return evidence-only answers", problem)
+            return None
+        return GeminiProvider(
+            settings.gemini_api_key.get_secret_value(),
+            settings.gemini_model,
+            timeout_seconds=timeout,
+            max_tokens=tokens,
+            temperature=temp,
+            thinking_budget=settings.gemini_thinking_budget,
         )
     if settings.llm_provider == "mock":
         return MockProvider()
