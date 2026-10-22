@@ -96,4 +96,18 @@ python -m eval.run_eval                     # prints and writes eval/results/lat
 
 To evaluate semantic retrieval, install Ollama and run
 `ollama pull nomic-embed-text`. Then set `EMBEDDING_PROVIDER=ollama`, run the
-embeddings job, and re-run the evaluation.
+embeddings job, and re-run the evaluation. The same works with
+`EMBEDDING_PROVIDER=gemini` and `GEMINI_EMBEDDING_MODEL` ([gemini.md](gemini.md)).
+
+To evaluate a real model instead of the mock, configure it (for example
+`LLM_PROVIDER=gemini` with `GEMINI_MODEL`) and run:
+
+```bash
+python -m eval.run_eval --llm configured --llm-delay 13
+```
+
+`--llm-delay` keeps a free-tier key under its per-minute limit (only the 10 answerable
+questions reach the model). Check the "answered by the model" row first: answers that
+fell back to evidence only (rate limit, quota, outage) are not model answers, and a rate
+below 1.0 means the run did not fully measure the model. **No Gemini or other real-model
+evaluation has been run yet**; the results above are mock-LLM results.

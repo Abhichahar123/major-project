@@ -7,7 +7,8 @@ what was verified and how.
 
 The platform is a **modular monolith**: one FastAPI codebase with clear internal modules,
 backed by one PostgreSQL database (with the pgvector extension) and an optional local LLM
-served by Ollama. A Flutter client talks to the REST API only.
+served by Ollama, or optionally Google's Gemini API. A Flutter client talks to the REST
+API only.
 
 ```mermaid
 flowchart LR
@@ -31,11 +32,14 @@ flowchart LR
     end
 
     OLL["Ollama (local LLM, optional)"]
+    GEM["Google Gemini API (optional, cloud)"]
     UI["Flutter app (frontend/)"]
 
     Sources --> ING --> DB
     DB --> RET --> DB
     RET --> RAG --> OLL
+    RAG -. optional .-> GEM
+    RET -. optional embeddings .-> GEM
     DB --> COR
     DB --> DEP
     DEP -. optional .-> OSV
@@ -51,7 +55,7 @@ flowchart LR
 | `app/services` | Read-side query logic for vulnerabilities, KEV, techniques, sources and stats | Know about HTTP |
 | `app/ingestion` | Fetch, validate, normalize and upsert source data; job lifecycle | Be triggered without a job record |
 | `app/retrieval` | Build documents and chunks, compute embeddings, hybrid search | Call the LLM |
-| `app/llm` | Provider abstraction (Ollama, OpenAI-compatible, mock, none) | Contain prompts for a specific feature |
+| `app/llm` | Provider abstraction (Ollama, OpenAI-compatible, Gemini, mock, none) | Contain prompts for a specific feature |
 | `app/rag` | Evidence selection, prompt construction, citation validation, fallbacks | Write to the database |
 | `app/correlation` | Explainable links between CVEs, KEV, CWE, CAPEC and ATT&CK | Store inferred links as facts |
 | `app/dependencies` | Parse manifests without executing them; match packages to vulnerability data | Execute or install anything |
@@ -117,7 +121,8 @@ Principles:
 * **One running job per source**, enforced by a partial unique index on `ingestion_jobs`.
 * **Vectors.** `chunk_embeddings.embedding` is `vector(768)` with an HNSW cosine index. The
   dimension is fixed by migration. Changing to a model with another dimension requires a new
-  migration and re-embedding.
+  migration and re-embedding. Gemini embeddings are requested at 768 dimensions
+  (`output_dimensionality`) to fit this column without a migration.
 
 Display severity precedence (documented in `app/ingestion/normalize.py`):
 1. CNA scores first, then NVD primary, then CISA-ADP.
@@ -179,8 +184,8 @@ sequenceDiagram
 ```
 
 * Facts (CVSS, KEV status, CWE) shown with an answer come from the database, not the model.
-* If the LLM is unavailable or times out, the API returns the retrieved evidence with
-  `mode = "evidence_only"` instead of failing.
+* If the LLM is unavailable, times out, is rate limited, or (Gemini) blocks the answer,
+  the API returns the retrieved evidence with `mode = "evidence_only"` instead of failing.
 
 Retrieval details (`app/retrieval/search.py`):
 

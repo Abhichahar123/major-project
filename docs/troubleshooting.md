@@ -15,6 +15,8 @@
 | `/search` warns about a lexical embedder | `EMBEDDING_PROVIDER=hashing` | Expected for development; use Ollama `nomic-embed-text` for semantic search |
 | Embeddings job fails with "returns N dimensions; the database stores 768" | Embedding model with another dimension | Use a 768-dimension model, or add a migration changing `vector(768)` and re-embed |
 | Chat always returns `evidence_only` | Ollama not running or model not pulled | `ollama serve`; `ollama pull llama3.1:8b`; check `OLLAMA_BASE_URL` (Compose: `http://ollama:11434`) |
+| Chat returns `evidence_only` with a Gemini warning | `GEMINI_API_KEY`/`GEMINI_MODEL` not set, invalid key, unknown model, rate limit or daily quota | Read the warning; run `python -m app.llm.gemini_models`; wait for the quota to reset or use a paid key ([gemini.md](gemini.md)) |
+| Embeddings job `failed` with "Gemini rate limit" or "daily quota" | Free-tier embedding quota | Re-run later: finished batches are kept and old vectors are not pruned until the run completes |
 | Chat is slow or times out | Large model on CPU | Use a smaller model (e.g. `LLM_MODEL=llama3.2:3b`), a GPU, or raise `LLM_TIMEOUT_SECONDS` |
 | Chat answers "insufficient evidence" for a real topic | The topic is not in the ingested data, or the wording differs (nicknames such as "Spring4Shell") | Name the CVE ID or product; ingest the record (`sync cve5 --mode ids --ids …`) |
 | Flutter web shows a blank page | CanvasKit could not load from Google's CDN | Build with `--no-web-resources-cdn` |

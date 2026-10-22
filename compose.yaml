@@ -66,7 +66,14 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    environment: *api-environment
+    environment:
+      <<: *api-environment
+      # Google Gemini (optional). Only the API service receives the key; it is read
+      # from .env and never baked into the image. Empty values disable Gemini.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-}
+      GEMINI_THINKING_BUDGET: ${GEMINI_THINKING_BUDGET:-}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
 

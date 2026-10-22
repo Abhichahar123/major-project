@@ -8,9 +8,9 @@ stores it with full provenance, and helps an analyst to:
   KEV status, package advisories with fixed versions;
 * **correlate** CVEs with CWE, CAPEC and MITRE ATT&CK through documented rules that label
   each link *authoritative* or *inferred*;
-* **ask questions** answered by a locally hosted open-weight LLM (Ollama) using
-  retrieval-augmented generation, with citations, database facts and explicit
-  "insufficient evidence" behaviour;
+* **ask questions** answered by a locally hosted open-weight LLM (Ollama), or optionally
+  by Google Gemini, using retrieval-augmented generation, with citations, database facts
+  and explicit "insufficient evidence" behaviour;
 * **check dependencies** (`requirements.txt`, `package-lock.json`, `package.json`)
   against OSV advisories, separating confirmed from uncertain matches.
 
@@ -42,6 +42,7 @@ See [docs/architecture.md](docs/architecture.md) for components, data model and 
 | Ingestion CLI | `python -m app.ingestion` | [docs/deployment.md](docs/deployment.md) |
 | Frontend | `frontend/flutter_app` (Flutter 3.47) | [frontend/flutter_app/README.md](frontend/flutter_app/README.md) |
 | Security | | [docs/security.md](docs/security.md) |
+| Gemini (optional) | `backend/app/llm`, `backend/app/core/gemini.py` | [docs/gemini.md](docs/gemini.md) |
 | Evaluation | `backend/eval` | [docs/evaluation.md](docs/evaluation.md) |
 | Demo and viva | | [docs/demo-guide.md](docs/demo-guide.md) |
 | Troubleshooting | | [docs/troubleshooting.md](docs/troubleshooting.md) |
@@ -85,6 +86,26 @@ docker compose --profile web up -d web
 Without Ollama, the platform still works: search uses the built-in lexical embedder, and
 chat returns the retrieved evidence (`mode: evidence_only`) instead of a generated answer.
 
+### Optional: Google Gemini (free-tier API key)
+
+Gemini can replace Ollama for chat, and separately provide semantic embeddings. The key
+stays in the backend `.env`; the Flutter app never sees it.
+
+```bash
+# .env (backend only)
+GEMINI_API_KEY=...                 # from Google AI Studio
+LLM_PROVIDER=gemini
+GEMINI_MODEL=<model code>          # no default: pick one from the command below
+# EMBEDDING_PROVIDER=gemini and GEMINI_EMBEDDING_MODEL=<code> for embeddings (768-d)
+
+docker compose exec api python -m app.llm.gemini_models    # codes this key can use
+docker compose up -d api
+```
+
+Questions and retrieved evidence are then sent to Google, and free-tier content may be
+used by Google to improve its products. Rate limits and quota errors fall back to
+evidence-only answers. Details: [docs/gemini.md](docs/gemini.md).
+
 ## Development without Docker
 
 ```bash
@@ -115,6 +136,7 @@ ruff check . && ruff format --check . && mypy
 pytest                                   # unit tests; integration tests are skipped
 TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/cti_test pytest   # everything
 python -m eval.run_eval                  # retrieval / RAG pipeline / dependency evaluation
+python -m eval.run_eval --llm configured --llm-delay 13   # RAG with the configured model
 
 cd ../frontend/flutter_app
 flutter analyze && flutter test
@@ -124,8 +146,8 @@ Integration tests need a **disposable** database whose name contains `test`: the
 recreate the schema. CI (`.github/workflows/ci.yml`) runs everything against
 `pgvector/pgvector:0.8.0-pg16`.
 
-Latest local results: 272 backend tests passed (against pgvector 0.6.0 and 0.8.0), and 14
-Flutter tests passed. Measured evaluation results are in
+Latest local results: 321 backend tests passed (against pgvector 0.6.0), and 14 Flutter
+tests passed. No test needs an API key: Gemini is tested against a mocked API. Measured evaluation results are in
 [docs/evaluation.md](docs/evaluation.md).
 
 ## Data sources and licences
@@ -146,6 +168,9 @@ authorised to inspect. It does not execute uploaded files, run exploits or scan 
 * No real LLM or semantic embedding model could run in the development sandbox. They are
   integrated and tested with mocked HTTP, and the evaluation used the lexical hashing
   embedder and a mock LLM ([details](docs/evaluation.md)).
+* Gemini support has not made a real API call (no key was available). Its free-tier model
+  codes could not be checked against Google's official pages from the sandbox, so none is
+  set by default ([details](docs/gemini.md)).
 * NVD ingestion is implemented but was only exercised with synthetic fixtures (the NVD
   API was unreachable from the sandbox). The OSV.dev online lookup is likewise
   mock-tested and off by default.

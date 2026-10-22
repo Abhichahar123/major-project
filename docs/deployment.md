@@ -51,6 +51,19 @@ docker compose up -d api
 docker compose exec api python -m app.ingestion sync embeddings
 ```
 
+Google Gemini instead of (or alongside) Ollama, with a free-tier API key:
+
+```bash
+# In .env: GEMINI_API_KEY=..., LLM_PROVIDER=gemini, GEMINI_MODEL=<code>
+# (optional: EMBEDDING_PROVIDER=gemini, GEMINI_EMBEDDING_MODEL=<code>)
+docker compose exec api python -m app.llm.gemini_models   # codes the key can use
+docker compose up -d api
+docker compose exec api python -m app.ingestion sync embeddings   # only if embeddings changed
+```
+
+There are no default Gemini model codes; see [gemini.md](gemini.md) for choosing them,
+the data that is sent to Google, and the free-tier limits.
+
 Frontend (served by nginx on port 8090):
 
 ```bash
@@ -119,6 +132,10 @@ one job per source can run at a time, and a crashed job is marked stale after
 * Back up the `pgdata` volume. Everything except the `sources` watermarks can be
   re-ingested.
 * Pin the Ollama image tag to a current release (`OLLAMA_IMAGE_TAG`).
+* With Gemini: keep `GEMINI_API_KEY` in the server's `.env` or secret store only, and
+  restrict the key to the Generative Language API in Google Cloud. A missing key does not
+  stop startup in production either: chat degrades to evidence-only and
+  `/health/ready` reports `llm: degraded`, so alert on that check.
 
 ## Configuration reference
 
@@ -129,6 +146,8 @@ All variables are documented in `.env.example`. The groups are:
 - embeddings: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`;
 - LLM: `LLM_PROVIDER`, `LLM_MODEL`, `OLLAMA_BASE_URL`, timeouts and token limits, plus
   `LLM_BASE_URL`/`LLM_API_KEY` for an OpenAI-compatible endpoint;
+- Gemini: `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_EMBEDDING_MODEL`,
+  `GEMINI_THINKING_BUDGET` ([gemini.md](gemini.md));
 - data sources: `NVD_API_KEY`, `OSV_ONLINE_LOOKUP`, feed URLs;
 - rate limits.
 

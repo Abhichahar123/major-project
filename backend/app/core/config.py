@@ -240,9 +240,9 @@ class Settings(BaseSettings):
             _require_https(self.llm_base_url)
         return self
 
-    @field_validator("gemini_api_key", mode="before")
+    @field_validator("gemini_api_key", "gemini_thinking_budget", mode="before")
     @classmethod
-    def _blank_key_is_unset(cls, value: Any) -> Any:
+    def _blank_is_unset(cls, value: Any) -> Any:
         # GEMINI_API_KEY= (empty, as in .env.example) means "not configured".
         return None if isinstance(value, str) and not value.strip() else value
 

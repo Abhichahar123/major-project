@@ -44,7 +44,9 @@ stay on the machine, with a provider abstraction to swap models. No foundation m
 trained, which needs far more compute and data than a project of this size. The
 recommended path is local RAG on an open model, with optional fine-tuning (LoRA)
 evaluated with `eval/run_eval.py`. Indian-developed open models can be plugged in through
-the same interface and compared with the evaluation harness.
+the same interface and compared with the evaluation harness. Google Gemini is supported
+as an optional cloud provider for comparison, but it is not "indigenous" and sends
+questions to Google, so the local Ollama path stays the default.
 
 **How do you prevent hallucination?**
 - If nothing relevant is retrieved, the model is never called.

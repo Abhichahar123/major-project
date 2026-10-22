@@ -3,13 +3,19 @@
 Usage (from backend/, with DATABASE_URL pointing at a seeded and indexed database)::
 
     python -m eval.run_eval            # writes eval/results/latest.json and .md
+    python -m eval.run_eval --llm configured --llm-delay 13
+        # RAG with the model from LLM_PROVIDER (e.g. gemini), pausing between model calls
+        # to stay inside free-tier per-minute limits
 
 What is measured:
 
 * retrieval: Recall@1/5/10 and MRR@10 of the expected entity, for keyword, vector and
   hybrid modes, with the embedder configured by EMBEDDING_PROVIDER;
-* RAG pipeline: with the deterministic mock LLM, so this measures evidence selection,
-  citation validity, refusal and insufficient-evidence behaviour, not language quality;
+* RAG pipeline: by default with the deterministic mock LLM, so this measures evidence
+  selection, citation validity, refusal and insufficient-evidence behaviour, not language
+  quality. ``--llm configured`` uses the configured model instead; answers that fell back
+  to evidence only (rate limit, quota, outage) are counted separately, never as model
+  answers;
 * dependency matching: confusion matrix on labelled (package, version, CVE) cases.
 
 Expected IDs missing from the database are reported and excluded from the metrics, so
@@ -18,6 +24,7 @@ results describe the system on the data it has.
 
 from __future__ import annotations
 
+import argparse
 import json
 import platform
 import statistics
@@ -36,7 +43,7 @@ from app.dependencies.matcher import analyze
 from app.dependencies.parsers import Dependency, Manifest
 from app.ingestion.normalize import normalize_package_name
 from app.ingestion.runtime import make_ingestion_engine, make_session_factory
-from app.llm.providers import MockProvider
+from app.llm.providers import LLMProvider, MockProvider, build_llm
 from app.rag.guardrails import CITATION
 from app.rag.pipeline import answer_question
 from app.retrieval.embedders import build_embedder
@@ -93,12 +100,20 @@ def eval_retrieval(session: Any, embedder: Any) -> dict[str, Any]:
     return out
 
 
-def eval_rag(session: Any, settings: Any, embedder: Any) -> dict[str, Any]:
+def eval_rag(
+    session: Any,
+    settings: Any,
+    embedder: Any,
+    llm: LLMProvider | None = None,
+    llm_delay: float = 0.0,
+) -> dict[str, Any]:
     golden = _load("golden_rag.json")
-    llm = MockProvider()
+    model = llm or MockProvider()
     answerable = []
-    for item in golden["answerable"]:
-        res = answer_question(session, item["q"], settings=settings, embedder=embedder, llm=llm)
+    for index, item in enumerate(golden["answerable"]):
+        if index and llm_delay:
+            time.sleep(llm_delay)  # only answerable questions reach the model
+        res = answer_question(session, item["q"], settings=settings, embedder=embedder, llm=model)
         cited = {c.entity_id for c in res.citations}
         provided_ids = {c.id for c in res.citations}
         raw_citations = set(CITATION.findall(res.answer))
@@ -114,20 +129,27 @@ def eval_rag(session: Any, settings: Any, embedder: Any) -> dict[str, Any]:
         )
     unanswerable = []
     for q in golden["unanswerable"]:
-        res = answer_question(session, q, settings=settings, embedder=embedder, llm=llm)
+        res = answer_question(session, q, settings=settings, embedder=embedder, llm=model)
         unanswerable.append({"q": q, "mode": res.mode})
     offensive = []
     for q in golden["offensive"]:
-        res = answer_question(session, q, settings=settings, embedder=embedder, llm=llm)
+        res = answer_question(session, q, settings=settings, embedder=embedder, llm=model)
         offensive.append({"q": q, "mode": res.mode})
 
     def rate(items: list[dict[str, Any]], pred: Any) -> float:
         return round(sum(1 for i in items if pred(i)) / (len(items) or 1), 3)
 
     return {
-        "llm": "mock (deterministic); measures the pipeline, not a language model",
+        "llm": (
+            f"{model.provider}/{model.model}"
+            if llm is not None
+            else "mock (deterministic); measures the pipeline, not a language model"
+        ),
         "answerable": {
             "n": len(answerable),
+            # With a real model, anything below 1.0 means some answers fell back to
+            # evidence only (rate limit, quota or outage) and say nothing about the model.
+            "model_answered_rate": rate(answerable, lambda i: i["mode"] == "generated"),
             "expected_record_cited_rate": rate(answerable, lambda i: i["expected_cited"]),
             "grounded_rate": rate(answerable, lambda i: i["grounded"]),
             "all_citations_valid_rate": rate(answerable, lambda i: i["citations_valid"]),
@@ -234,12 +256,17 @@ def _markdown(report: dict[str, Any]) -> str:
         lines += [f'- "{p["q"]}": expected {p["expected"]}, got {p["top3"]}' for p in misses]
     lines += [
         "",
-        "## RAG pipeline (mock LLM)",
+        f"## RAG pipeline ({'mock LLM' if g['llm'].startswith('mock') else g['llm']})",
         "",
-        "The mock LLM measures evidence selection and validation, not language quality.",
+        (
+            "The mock LLM measures evidence selection and validation, not language quality."
+            if g["llm"].startswith("mock")
+            else "Answers that fell back to evidence only are not model answers."
+        ),
         "",
         "| Check | Result |",
         "|---|---|",
+        f"| Answerable: answered by the model | {g['answerable']['model_answered_rate']} |",
         f"| Answerable: expected record cited | {g['answerable']['expected_record_cited_rate']} "
         f"(n={g['answerable']['n']}) |",
         f"| Answerable: grounded | {g['answerable']['grounded_rate']} |",
@@ -268,8 +295,25 @@ def _markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--llm",
+        choices=["mock", "configured"],
+        default="mock",
+        help="RAG model: the deterministic mock (default) or the one from LLM_PROVIDER",
+    )
+    parser.add_argument(
+        "--llm-delay", type=float, default=0.0, help="seconds to wait between model calls"
+    )
+    args = parser.parse_args(argv)
     settings = load_settings()
+    llm = None
+    if args.llm == "configured":
+        llm = build_llm(settings)
+        if llm is None:
+            print("LLM_PROVIDER is not usable (see the warning above).", file=sys.stderr)
+            return 2
     engine = make_ingestion_engine(settings)
     session_factory = make_session_factory(engine)
     embedder = build_embedder(settings)
@@ -285,7 +329,7 @@ def main() -> int:
             "embedder": f"{embedder.provider}/{embedder.name}" if embedder else "none",
             "dataset": dataset,
             "retrieval": eval_retrieval(session, embedder),
-            "rag": eval_rag(session, settings, embedder),
+            "rag": eval_rag(session, settings, embedder, llm, args.llm_delay),
             "dependencies": eval_dependencies(session),
         }
     engine.dispose()

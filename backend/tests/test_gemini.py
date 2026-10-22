@@ -93,9 +93,23 @@ def test_no_gemini_model_is_assumed() -> None:
 
 
 def test_blank_values_count_as_unset() -> None:
-    settings = make_settings(gemini_api_key="  ", gemini_model="")
+    settings = make_settings(gemini_api_key="  ", gemini_model="", gemini_thinking_budget="")
     assert settings.gemini_api_key is None
     assert settings.gemini_model is None
+    assert settings.gemini_thinking_budget is None
+
+
+def test_env_example_values_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The empty Gemini lines of .env.example (and of compose.yaml) must not break startup.
+    for name in (
+        "GEMINI_API_KEY",
+        "GEMINI_MODEL",
+        "GEMINI_EMBEDDING_MODEL",
+        "GEMINI_THINKING_BUDGET",
+    ):
+        monkeypatch.setenv(name, "")
+    settings = make_settings(llm_provider="gemini")
+    assert settings.gemini_problem("llm") is not None
 
 
 @pytest.mark.parametrize("model", ["../v1/files", "gemini flash", "Gemini-Pro", "a" * 120])
