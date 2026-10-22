@@ -12,6 +12,10 @@ WORKDIR /app
 COPY pyproject.toml constraints.txt ./
 COPY app ./app
 RUN pip install -c constraints.txt .
+# Migrations ship with the image: run `alembic upgrade head` before serving, and the
+# readiness probe compares the database revision with this head.
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 # Run as an unprivileged user.
 RUN useradd --system --uid 10001 --no-create-home appuser

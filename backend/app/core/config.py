@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # Required for administrative operations such as triggering ingestion jobs.
     admin_api_key: SecretStr | None = None
 
+    # --- Rate limits (requests per minute per client; 0 disables) ----------------------
+    rate_limit_search_per_minute: int = Field(default=120, ge=0, le=10_000)
+    rate_limit_chat_per_minute: int = Field(default=10, ge=0, le=1000)
+    rate_limit_dependencies_per_minute: int = Field(default=20, ge=0, le=1000)
+    rate_limit_admin_per_minute: int = Field(default=10, ge=0, le=1000)
+
     # --- Ingestion --------------------------------------------------------------------
     # Feeds are tried in order; the GitHub mirror is the official CISA kev-data repository.
     kev_feed_urls: Annotated[list[str], NoDecode] = Field(

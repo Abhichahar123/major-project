@@ -6,9 +6,7 @@ import copy
 import io
 import json
 import zipfile
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -44,13 +42,17 @@ from tests.conftest import make_settings
 
 pytestmark = pytest.mark.integration
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-KEV_PRIMARY = "https://kev-primary.test/kev.json"
-KEV_MIRROR = "https://kev-mirror.test/kev.json"
-CVE5 = "https://cve5.test/cves"
-NVD = "https://nvd.test/rest/json/cves/2.0"
-ATTACK = "https://attack.test/enterprise-attack.json"
-CAPEC = "https://capec.test/stix-capec.json"
+from tests.integration.helpers import (  # noqa: E402
+    ATTACK,
+    CAPEC,
+    CVE5,
+    KEV_MIRROR,
+    KEV_PRIMARY,
+    NVD,
+    OSV_BASE,
+    FakeUpstream,
+    fixture,
+)
 
 
 def recent() -> str:
@@ -70,37 +72,6 @@ def test_nvd_long_window_is_split(run, upstream: FakeUpstream) -> None:  # type:
         start = datetime.fromisoformat(params["lastModStartDate"])
         end = datetime.fromisoformat(params["lastModEndDate"])
         assert end - start <= timedelta(days=120)
-
-
-def fixture(name: str) -> Any:
-    return json.loads((FIXTURES / name).read_text())
-
-
-class FakeUpstream:
-    """Routes requests to fixture payloads; tests can override or break routes."""
-
-    def __init__(self) -> None:
-        self.routes: dict[str, Callable[[httpx.Request], httpx.Response]] = {}
-        self.calls: list[httpx.Request] = []
-        self.set_json(KEV_PRIMARY, fixture("kev_sample.json"))
-        for cve in ("CVE-2023-30861", "CVE-2021-44228"):
-            year, num = cve.split("-")[1:]
-            self.set_json(f"{CVE5}/{year}/{int(num) // 1000}xxx/{cve}.json", fixture(f"{cve}.json"))
-        self.set_json(ATTACK, fixture("attack_sample.json"))
-        self.set_json(CAPEC, fixture("capec_sample.json"))
-        self.set_json(NVD, fixture("nvd_synthetic_page.json"))
-
-    def set_json(self, url: str, payload: Any) -> None:
-        self.routes[url] = lambda request: httpx.Response(200, json=payload)
-
-    def set_status(self, url: str, status: int) -> None:
-        self.routes[url] = lambda request: httpx.Response(status)
-
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        self.calls.append(request)
-        url = str(request.url).split("?")[0]
-        route = self.routes.get(url)
-        return route(request) if route else httpx.Response(404)
 
 
 @pytest.fixture
@@ -355,8 +326,6 @@ def test_attack_and_capec_ingestion(run, db: Session) -> None:  # type: ignore[n
 
 
 # --------------------------------------------------------------------------- OSV
-
-OSV_BASE = "https://osv.test/osv-vulnerabilities"
 
 
 def osv_zip(records: dict[str, Any], extra: dict[str, bytes] | None = None) -> bytes:

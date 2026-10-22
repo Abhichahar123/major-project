@@ -13,11 +13,13 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.routes import health
+from app.api.routes import admin, catalog, health, vulnerabilities
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
+from app.core.rate_limit import RateLimiter
 from app.db.session import create_db_engine, create_session_factory
+from app.ingestion.runtime import make_http_client, make_ingestion_engine, make_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_db_engine(settings)
         app.state.db_engine = engine
         app.state.db_session_factory = create_session_factory(engine)
+        # Background ingestion uses its own small pool with a longer statement timeout.
+        ingestion_engine = make_ingestion_engine(settings)
+        app.state.ingestion_session_factory = make_session_factory(ingestion_engine)
+        app.state.http_factory = lambda: make_http_client(settings)
         logger.info(
             "Application started",
             extra={
@@ -43,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             engine.dispose()
+            ingestion_engine.dispose()
             logger.info("Application stopped")
 
     app = FastAPI(
@@ -55,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None if settings.is_production else f"{settings.api_v1_prefix}/openapi.json",
     )
     app.state.settings = settings
+    app.state.rate_limiter = RateLimiter()
 
     register_exception_handlers(app)
 
@@ -64,7 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_origins=settings.cors_origins,
             allow_credentials=False,
             allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Request-ID", "X-Admin-Key"],
+            allow_headers=["Content-Type", "X-Request-ID", "X-Admin-Key"],  # no cookies used
             expose_headers=["X-Request-ID"],
         )
     # Added last so it wraps everything else, including CORS.
@@ -75,6 +83,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api_v1 = APIRouter(prefix=settings.api_v1_prefix)
     api_v1.include_router(health.router)
+    api_v1.include_router(vulnerabilities.router)
+    api_v1.include_router(catalog.router)
+    api_v1.include_router(admin.router)
     app.include_router(api_v1)
 
     return app
